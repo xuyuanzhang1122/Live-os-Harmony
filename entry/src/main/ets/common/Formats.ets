@@ -27,7 +27,8 @@ export class Formats {
   }
 
   static formatRelativeTime(isoOrDateTime: string, nowMillis: number = Date.now()): string {
-    const timestamp: number = Date.parse(isoOrDateTime);
+    const normalized: string = isoOrDateTime.replace(' ', 'T');
+    const timestamp: number = Date.parse(normalized);
     if (!Number.isFinite(timestamp)) {
       return isoOrDateTime;
     }

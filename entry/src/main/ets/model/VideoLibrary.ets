@@ -24,15 +24,15 @@ export class VideoRoomInfo implements VideoRoomInfoInit {
   url: string | null;
 
   constructor(value: VideoRoomInfoInit) {
-    this.host_name = value.host_name;
-    this.platform = value.platform;
-    this.folder_path = value.folder_path;
-    this.video_count = value.video_count;
-    this.total_size = value.total_size;
-    this.latest_video_at = value.latest_video_at;
-    this.latest_video = value.latest_video;
-    this.recording = value.recording;
-    this.url = value.url;
+    this.host_name = value.host_name ?? '';
+    this.platform = value.platform ?? '';
+    this.folder_path = value.folder_path ?? '';
+    this.video_count = value.video_count ?? 0;
+    this.total_size = value.total_size ?? 0;
+    this.latest_video_at = value.latest_video_at ?? 0;
+    this.latest_video = value.latest_video ?? null;
+    this.recording = value.recording ?? false;
+    this.url = value.url ?? null;
   }
 
   roomId(): string {
@@ -64,15 +64,15 @@ export class VideoFileInfo implements VideoFileInfoInit {
   playback_status: PlaybackStatus | null;
 
   constructor(value: VideoFileInfoInit) {
-    this.name = value.name;
-    this.rel_path = value.rel_path;
-    this.size = value.size;
-    this.mod_time = value.mod_time;
-    this.file_url = value.file_url;
-    this.thumbnail_url = value.thumbnail_url;
-    this.hls_url = value.hls_url;
-    this.recording = value.recording;
-    this.playback_status = value.playback_status;
+    this.name = value.name ?? '';
+    this.rel_path = value.rel_path ?? '';
+    this.size = value.size ?? 0;
+    this.mod_time = value.mod_time ?? '';
+    this.file_url = value.file_url ?? null;
+    this.thumbnail_url = value.thumbnail_url ?? null;
+    this.hls_url = value.hls_url ?? null;
+    this.recording = value.recording ?? null;
+    this.playback_status = value.playback_status ?? null;
   }
 
   isNativePlayable(): boolean {

@@ -4,6 +4,7 @@ import { sha256Hex } from '../main/ets/common/Sha256';
 import { AppConfig } from '../main/ets/config/AppConfig';
 import { APIClient } from '../main/ets/net/APIClient';
 import { ApiCache, CacheClock } from '../main/ets/net/ApiCache';
+import { WatchHistoryEntry } from '../main/ets/model/HistoryEntry';
 import {
   BackupDeviceConfig,
   BackupPackage,
@@ -11,7 +12,7 @@ import {
   ServerLiveRoomInput,
   ServerRpcConfigInput
 } from '../main/ets/model/BackupModels';
-import { VideoFileInfo } from '../main/ets/model/VideoLibrary';
+import { VideoFileInfo, VideoFileInfoInit, VideoRoomInfo, VideoRoomInfoInit } from '../main/ets/model/VideoLibrary';
 import { LruCache } from '../main/ets/cache/LruCache';
 import { ThumbnailCache } from '../main/ets/cache/ThumbnailCache';
 import {
@@ -23,6 +24,12 @@ import {
   seekRangeFor,
   shouldResume
 } from '../main/ets/player/PlayerMath';
+import {
+  calculateLibraryColumns,
+  historyProgressPercent,
+  VideoLibraryViewModel,
+  VideoListViewModel
+} from '../main/ets/viewmodel/VideoLibraryViewModel';
 
 class MutableClock implements CacheClock {
   nowValue: number;
@@ -33,6 +40,58 @@ class MutableClock implements CacheClock {
 
   now(): number {
     return this.nowValue;
+  }
+}
+
+class MemoryApiCache extends ApiCache {
+  private values: Map<string, string> = new Map<string, string>();
+
+  constructor() {
+    super('');
+  }
+
+  get(url: string): string | null {
+    return this.values.get(url) ?? null;
+  }
+
+  set(url: string, body: string): void {
+    this.values.set(url, body);
+  }
+}
+
+class FakeVideoClient extends APIClient {
+  rooms: VideoRoomInfo[] = [];
+  files: VideoFileInfo[] = [];
+  history: WatchHistoryEntry[] = [];
+  libraryFails: boolean = false;
+  deletedPath: string = '';
+  batchPaths: string[] = [];
+
+  constructor() {
+    super('http://server');
+  }
+
+  async getVideoLibrary(): Promise<VideoRoomInfo[]> {
+    if (this.libraryFails) {
+      throw new Error('offline');
+    }
+    return this.rooms;
+  }
+
+  async getVideoFiles(_folderPath: string): Promise<VideoFileInfo[]> {
+    return this.files;
+  }
+
+  async getHistoryAll(): Promise<WatchHistoryEntry[]> {
+    return this.history;
+  }
+
+  async deleteFile(relPath: string): Promise<void> {
+    this.deletedPath = relPath;
+  }
+
+  async batchDeleteFiles(paths: string[]): Promise<void> {
+    this.batchPaths = paths;
   }
 }
 
@@ -164,6 +223,101 @@ export default function task1InfrastructureTest(): void {
       expect(Formats.formatRelativeTime('2026-05-04T11:55:00Z', now)).assertEqual('5 分钟前');
       expect(Formats.formatRelativeTime('2026-05-04T09:00:00Z', now)).assertEqual('3 小时前');
       expect(Formats.formatRelativeTime('2026-05-01T09:00:00Z', now)).assertEqual('2026-05-01');
+    });
+
+    it('parses server date-time values with a space separator', 0, (): void => {
+      const now: number = Date.parse('2026-05-04T12:00:00');
+      expect(Formats.formatRelativeTime('2026-05-04 11:55:00', now)).assertEqual('5 分钟前');
+    });
+  });
+
+  describe('Task2 video model normalization', (): void => {
+    it('normalizes omitted video file fields instead of leaking undefined', 0, (): void => {
+      const sparse: VideoFileInfoInit = JSON.parse('{"name":"a.mp4","rel_path":"房间/a.mp4","size":1,' +
+        '"mod_time":"2026-05-04 12:00:00"}') as VideoFileInfoInit;
+      const file: VideoFileInfo = new VideoFileInfo(sparse);
+      expect(file.file_url).assertNull();
+      expect(file.thumbnail_url).assertNull();
+      expect(file.hls_url).assertNull();
+      expect(file.recording).assertNull();
+      expect(file.playback_status).assertNull();
+    });
+
+    it('normalizes omitted room fields to safe defaults', 0, (): void => {
+      const sparse: VideoRoomInfoInit = JSON.parse('{"host_name":"主播","platform":"抖音",' +
+        '"folder_path":"抖音/主播","video_count":0,"total_size":0,"latest_video_at":0}') as VideoRoomInfoInit;
+      const room: VideoRoomInfo = new VideoRoomInfo(sparse);
+      expect(room.latest_video).assertNull();
+      expect(room.recording).assertFalse();
+      expect(room.url).assertNull();
+    });
+  });
+
+  describe('Task2 video library presentation rules', (): void => {
+    it('keeps phone layouts at two columns and tablet layouts at four or more', 0, (): void => {
+      expect(calculateLibraryColumns(320)).assertEqual(2);
+      expect(calculateLibraryColumns(360)).assertEqual(2);
+      expect(calculateLibraryColumns(819)).assertEqual(4);
+      expect(calculateLibraryColumns(1200) >= 4).assertTrue();
+    });
+
+    it('derives watched percent with iOS resume boundaries and clamps', 0, (): void => {
+      expect(historyProgressPercent(5, 100)).assertEqual(-1);
+      expect(historyProgressPercent(5.01, 100)).assertEqual(5);
+      expect(historyProgressPercent(95, 100)).assertEqual(95);
+      expect(historyProgressPercent(200, 100)).assertEqual(100);
+      expect(historyProgressPercent(10, 0)).assertEqual(-1);
+    });
+
+    it('renders cached rooms when the following network refresh fails', 0, async (): Promise<void> => {
+      const cache: MemoryApiCache = new MemoryApiCache();
+      const client: FakeVideoClient = new FakeVideoClient();
+      client.libraryFails = true;
+      cache.set('http://server/api/video-library', JSON.stringify([new VideoRoomInfo({
+        host_name: '缓存主播',
+        platform: '抖音',
+        folder_path: '抖音/缓存主播',
+        video_count: 1,
+        total_size: 1024,
+        latest_video_at: 0,
+        latest_video: 'a.mp4',
+        recording: false,
+        url: null
+      })]));
+      const viewModel: VideoLibraryViewModel = new VideoLibraryViewModel(client, cache);
+      await viewModel.load();
+      expect(viewModel.rooms.length).assertEqual(1);
+      expect(viewModel.rooms[0].host_name).assertEqual('缓存主播');
+      expect(viewModel.errorText).assertEqual('');
+    });
+
+    it('indexes history and keeps delete state consistent with API calls', 0, async (): Promise<void> => {
+      const cache: MemoryApiCache = new MemoryApiCache();
+      const client: FakeVideoClient = new FakeVideoClient();
+      const first: VideoFileInfo = videoFile('a.mp4', '房间/a.mp4', null, null, null);
+      const second: VideoFileInfo = videoFile('b.mp4', '房间/b.mp4', null, null, null);
+      client.files = [first, second];
+      client.history = [{
+        id: 1,
+        api_key_user_id: 'user',
+        video_path: first.rel_path,
+        video_name: first.name,
+        position_seconds: 50,
+        duration_seconds: 100,
+        updated_at: '2026-05-04 12:00:00'
+      }];
+      const viewModel: VideoListViewModel = new VideoListViewModel(client, '房间', '主播', cache);
+      await viewModel.load(true);
+      expect(viewModel.historyByPath.size).assertEqual(1);
+      expect(viewModel.progressPercent(first.rel_path)).assertEqual(50);
+      await viewModel.deleteFile(first);
+      expect(client.deletedPath).assertEqual(first.rel_path);
+      expect(viewModel.files.length).assertEqual(1);
+      viewModel.toggleSelection(second.rel_path);
+      expect(await viewModel.deleteSelected()).assertEqual(1);
+      expect(client.batchPaths[0]).assertEqual(second.rel_path);
+      expect(viewModel.files.length).assertEqual(0);
+      expect(viewModel.selectedPaths.length).assertEqual(0);
     });
   });
 
