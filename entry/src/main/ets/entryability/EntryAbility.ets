@@ -8,7 +8,7 @@ const TAG: string = 'EntryAbility';
 
 export default class EntryAbility extends UIAbility {
   onCreate(): void {
-    AppConfig.getInstance();
+    AppConfig.getInstance(this.context);
     hilog.info(DOMAIN, TAG, 'Live OS initialized');
   }
 

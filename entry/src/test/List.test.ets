@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { AppConfig } from '../main/ets/config/AppConfig';
+import task1InfrastructureTest from './Task1Infrastructure.test';
 
 export default function listTest(): void {
   describe('Task0Skeleton', (): void => {
@@ -10,4 +11,6 @@ export default function listTest(): void {
       expect(first.activeURL).assertEqual('');
     });
   });
+
+  task1InfrastructureTest();
 }
