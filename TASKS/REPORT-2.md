@@ -49,3 +49,10 @@
 
 - 当前工程未配置签名，无法将本次未签名 HAP 安装到已连接设备完成交互验收；需用户在 DevEco Studio 配置自动签名后真机核对横竖屏卡片尺寸、右滑手势、毛玻璃效果及页签/push/pop 轮询生命周期。
 - 缩略图、删除与历史数据仍需连接真实 bililive 服务验证服务端载荷和签名 URL 的端到端表现。
+
+## TASK-2-fix 修复记录（2026-08-22）
+
+- 修复编辑模式复选框重入死循环：`Checkbox.select()` 程序化重放触发 `onChange` 时，先比较回调值与 ViewModel 当前选择状态；仅状态不一致的真实用户交互调用 `toggleSelection`，避免反复修改 `selectedPaths` 导致整列表重渲染和主线程卡死。
+- `.\hvigorw.bat assembleHap --daemon=false`：通过；`TYPE CHECK SUCCESSFUL`，`BUILD SUCCESSFUL`，HAP 编译、打包及签名成功。
+- `.\hvigorw.bat test --daemon=false`：通过；28 个本地 Hypium 用例全部通过，Failure 0、Error 0。
+- 范围检查：仅修改 `entry/src/main/ets/pages/VideoListPage.ets` 的复选框回调逻辑，并追加本修复记录；未实施 TASK-3 及后续任务功能。

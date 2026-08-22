@@ -153,7 +153,12 @@ export struct VideoListPage {
         Checkbox({ name: file.rel_path })
           .select(this.viewModel.isSelected(file.rel_path))
           .selectedColor($r('app.color.brand_color'))
-          .onChange((): void => this.viewModel.toggleSelection(file.rel_path))
+          .onChange((value: boolean): void => {
+            // select() 重放也会触发 onChange，仅处理与当前状态不一致的真实交互。
+            if (value !== this.viewModel.isSelected(file.rel_path)) {
+              this.viewModel.toggleSelection(file.rel_path);
+            }
+          })
       }
 
       CachedThumbnail({
