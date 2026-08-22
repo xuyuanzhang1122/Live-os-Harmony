@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { AppConfig } from '../main/ets/config/AppConfig';
 import task1InfrastructureTest from './Task1Infrastructure.test';
+import task3PlayerTest from './Task3Player.test';
 
 export default function listTest(): void {
   describe('Task0Skeleton', (): void => {
@@ -13,4 +14,5 @@ export default function listTest(): void {
   });
 
   task1InfrastructureTest();
+  task3PlayerTest();
 }

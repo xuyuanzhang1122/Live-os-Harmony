@@ -3,6 +3,7 @@ import { AppConfig } from '../config/AppConfig';
 import { VideoFileInfo } from '../model/VideoLibrary';
 import { VideoListViewModel } from '../viewmodel/VideoLibraryViewModel';
 import { CachedThumbnail } from './components/CachedThumbnail';
+import { PlayerPage } from './PlayerPage';
 
 @ComponentV2
 export struct VideoListPage {
@@ -230,22 +231,12 @@ export struct VideoListPage {
 
   @Builder
   private playerCover() {
-    Column({ space: 16 }) {
-      Text(this.selectedFile?.name ?? '')
-        .fontSize(20)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(Color.White)
-        .textAlign(TextAlign.Center)
-      Text('播放器将在 TASK-3 实现')
-        .fontSize(15)
-        .fontColor('#B8C0CC')
+    if (this.selectedFile !== null) {
+      PlayerPage({
+        file: this.selectedFile,
+        onClose: (): void => this.closePlayer()
+      })
     }
-    .width('100%')
-    .height('100%')
-    .padding(24)
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor(Color.Black)
-    .onClick((): void => this.closePlayer())
   }
 
   @Builder
