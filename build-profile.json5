@@ -1,9 +1,24 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\Xumy\\.ohos\\config\\default_bililive-harmony__ks17LvP7xiMcfw3V5a8GT0uhgjV0IGChj4bcfSxaWk=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B2323DF9A308E2329817842B1BDBE9D8AFA146E8F1444B2A83C520CD021E2AF2239AAF08665FBF2",
+          "profile": "C:\\Users\\Xumy\\.ohos\\config\\default_bililive-harmony__ks17LvP7xiMcfw3V5a8GT0uhgjV0IGChj4bcfSxaWk=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\Xumy\\.ohos\\config\\default_bililive-harmony__ks17LvP7xiMcfw3V5a8GT0uhgjV0IGChj4bcfSxaWk=.p12",
+          "storePassword": "0000001BA10C1DA57B52583B69A7C57A1BE1B06C6A604ADF605BBB993EB2DCCE5458A557D292E28502D404"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
+        "signingConfig": "default",
         "compatibleSdkVersion": "5.0.0(12)",
         "targetSdkVersion": "6.0.1(21)",
         "runtimeOS": "HarmonyOS",
