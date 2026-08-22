@@ -1,0 +1,12 @@
+{
+  "name": "entry",
+  "version": "2.0.0",
+  "description": "Live OS entry module",
+  "main": "",
+  "author": "Xumy",
+  "license": "",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.18"
+  }
+}

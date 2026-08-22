@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+
+if [ -n "${DEVECO_HOME}" ] && [ -x "${DEVECO_HOME}/tools/hvigor/bin/hvigorw" ]; then
+  HVIGOR_BIN="${DEVECO_HOME}/tools/hvigor/bin/hvigorw"
+elif [ -n "${DEVECO_SDK_HOME}" ] && [ -x "${DEVECO_SDK_HOME}/../tools/hvigor/bin/hvigorw" ]; then
+  HVIGOR_BIN="${DEVECO_SDK_HOME}/../tools/hvigor/bin/hvigorw"
+elif [ -x "/Applications/DevEco Studio.app/Contents/tools/hvigor/bin/hvigorw" ]; then
+  HVIGOR_BIN="/Applications/DevEco Studio.app/Contents/tools/hvigor/bin/hvigorw"
+else
+  echo "ERROR: DevEco Studio Hvigor was not found. Set DEVECO_HOME or DEVECO_SDK_HOME." >&2
+  exit 1
+fi
+
+if [ -z "${DEVECO_SDK_HOME}" ]; then
+  DEVECO_SDK_HOME="$(cd "$(dirname "${HVIGOR_BIN}")/../../.." && pwd)/sdk"
+  export DEVECO_SDK_HOME
+fi
+if [ -z "${JAVA_HOME}" ]; then
+  JAVA_HOME="$(cd "$(dirname "${HVIGOR_BIN}")/../../.." && pwd)/jbr"
+  export JAVA_HOME
+  PATH="${JAVA_HOME}/bin:${PATH}"
+  export PATH
+fi
+
+exec "${HVIGOR_BIN}" "$@"

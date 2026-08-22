@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "live-os",
+  "version": "2.0.0",
+  "description": "Live OS HarmonyOS client",
+  "dependencies": {},
+  "devDependencies": {}
+}

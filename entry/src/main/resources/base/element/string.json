@@ -1,0 +1,12 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Live OS 主模块"
+    },
+    {
+      "name": "entryability_desc",
+      "value": "Live OS 主界面"
+    }
+  ]
+}
