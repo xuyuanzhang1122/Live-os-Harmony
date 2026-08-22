@@ -69,9 +69,9 @@ TASK-N 验收未通过。以下是主控审查结论，请逐条修复：
 
 ## 环境备忘（实施者需要知道）
 
-- **DevEco Studio 6.0.1** 已安装（常见路径 `C:\Program Files\Huawei\DevEco Studio`，以实际为准）。SDK 在其 `sdk` 子目录；hvigor 与 Node 由 DevEco 携带
-- **命令行编译**：项目根目录执行 `hvigorw.bat assembleHap`。若报找不到 SDK/Node，设置环境变量 `DEVECO_SDK_HOME`（指向 DevEco 的 sdk 目录）与 `NODE_HOME`（指向 DevEco 携带的 node），或参考 DevEco 模板工程的 `local.properties`
-- **单元测试**：`hvigorw.bat test`（本地 hypium 测试；若命令不可用，报告说明即可，保证 IDE 内可跑）
+- **DevEco Studio 6.1.1**（实际安装于 `D:\DevEco Studio`，内置 API 24 SDK 与 Hvigor 6.24.4；工程不写 compileSdkVersion，targetSdk 21 / compatible 12，详见 CONVENTIONS §1）
+- **命令行编译**：项目根目录执行 `hvigorw.bat assembleHap`。包装脚本已内置 DEVECO_HOME/DEVECO_SDK_HOME 探测（含 `D:\DevEco Studio` 与 Program Files 回退），自动设置 Node/JBR/SDK 环境
+- **单元测试**：`hvigorw.bat test`（本地 hypium 测试，TASK-0 已验证可用）
 - **真机运行与签名**：由用户在 DevEco Studio 里完成（自动签名需华为开发者账号），实施者不需要处理签名
 - **设备屏幕**：2456×1600（约 3.0 密度，约 819×533vp），设计按自适应断点布局，勿写死像素
 

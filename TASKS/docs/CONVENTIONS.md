@@ -11,7 +11,9 @@
 | Bundle Name | `com.xumy.liveos` |
 | 模型 | Stage 模型，单 entry 模块 |
 | 语言 | ArkTS（严格遵循 ArkTS 语法约束，见官方 ArkTS-coding-style） |
-| 版本 | compileSdkVersion / targetSdkVersion = 21（HarmonyOS 6.0.1）；compatibleSdkVersion = 12（HarmonyOS 5.0.0） |
+| 版本 | **实际环境**（TASK-0 核准）：DevEco Studio 6.1.1（安装于 `D:\DevEco Studio`），仅内置 API 24 SDK；Hvigor 拒绝显式 compileSdk 21，故**不写 compileSdkVersion（跟随 IDE = API 24）**；`targetSdkVersion = "6.0.1(21)"`；`compatibleSdkVersion = "5.0.0(12)"`。工程级 oh-package.json5 不声明 hvigor devDependencies（用 IDE 内置，ohpm 公共仓库无 6.24.x 包） |
+| API 使用纪律 | compatible 为 API 12，但 compileSdk 是 24——编译器**不会**拦截 >12 的 API。因此：**任何 API 12 之后引入的接口必须做运行时特性检测/降级**（可用 `canIUse` 或 try-catch 包裹），且不得使用 API 21 之后才存在的接口（目标设备 MatePad 为 API 21） |
+| 中文资源目录 | 限定词目录用 `zh_CN`（`zh-CN` 非法，资源编译器会报错） |
 | 最低设备 | Huawei MatePad 11.5（2456×1600，约 819×533vp，平板横竖屏自适应）+ 普通手机 |
 
 ## 2. 目录结构（最终形态，各任务按需填充）
