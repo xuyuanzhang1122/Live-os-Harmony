@@ -4,6 +4,7 @@ import { sha256Hex } from '../main/ets/common/Sha256';
 import { AppConfig } from '../main/ets/config/AppConfig';
 import { APIClient } from '../main/ets/net/APIClient';
 import { ApiCache, CacheClock } from '../main/ets/net/ApiCache';
+import { ApiError, ApiErrorType } from '../main/ets/model/Common';
 import { WatchHistoryEntry } from '../main/ets/model/HistoryEntry';
 import {
   BackupDeviceConfig,
@@ -30,6 +31,13 @@ import {
   VideoLibraryViewModel,
   VideoListViewModel
 } from '../main/ets/viewmodel/VideoLibraryViewModel';
+import {
+  apiKeySummary,
+  apiKeyValidationError,
+  cacheClearMessage,
+  totalCacheBytes,
+  validateNetworkConfig
+} from '../main/ets/viewmodel/SettingsViewModel';
 
 class MutableClock implements CacheClock {
   nowValue: number;
@@ -373,6 +381,38 @@ export default function task1InfrastructureTest(): void {
       config.activeURL = 'http://second';
       expect(config.getClient() === first).assertFalse();
       config.activeURL = '';
+    });
+  });
+
+  describe('Task6 settings rules', (): void => {
+    it('rejects malformed manual and smart network configurations', 0, (): void => {
+      expect(validateNetworkConfig(false, '', '', '')).assertEqual('请输入服务器地址');
+      expect(validateNetworkConfig(false, 'ftp://server', '', '')).assertEqual('服务器地址必须以 http:// 或 https:// 开头');
+      expect(validateNetworkConfig(true, '', '', '')).assertEqual('局域网地址和公网地址至少填写一个');
+      expect(validateNetworkConfig(true, '', 'server.local', '')).assertEqual('局域网地址必须以 http:// 或 https:// 开头');
+      expect(validateNetworkConfig(true, '', '', 'https://public.example')).assertEqual('');
+    });
+
+    it('uses server key suffix first and falls back to the local key tail', 0, (): void => {
+      expect(apiKeySummary('', null)).assertEqual('未设置');
+      expect(apiKeySummary('abcdef123456', null)).assertEqual('已配置（••••3456）');
+      expect(apiKeySummary('abcdef123456', '7788')).assertEqual('已配置（••••7788）');
+    });
+
+    it('maps unauthorized key validation without hiding other failures', 0, (): void => {
+      expect(apiKeyValidationError(new ApiError(ApiErrorType.UNAUTHORIZED))).assertEqual('API Key 无效或未开启鉴权');
+      expect(apiKeyValidationError(ApiError.server(500, '服务异常'))).assertEqual('服务器错误 500: 服务异常');
+      expect(apiKeyValidationError(new Error('连接超时'))).assertEqual('连接超时');
+    });
+
+    it('adds API and thumbnail cache bytes without truncation', 0, (): void => {
+      expect(totalCacheBytes(1024, 2048)).assertEqual(3072);
+      expect(totalCacheBytes(0, 0)).assertEqual(0);
+    });
+
+    it('does not report a successful cache clear while bytes remain', 0, (): void => {
+      expect(cacheClearMessage(0)).assertEqual('已清除');
+      expect(cacheClearMessage(1)).assertEqual('部分缓存未能清除');
     });
   });
 }

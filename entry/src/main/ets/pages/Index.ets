@@ -2,6 +2,12 @@ import { Haptics } from '../common/Haptics';
 import { AppConfig } from '../config/AppConfig';
 import { VideoLibraryPage, VideoListRouteParams } from './VideoLibraryPage';
 import { VideoListPage } from './VideoListPage';
+import { AboutPage } from './AboutPage';
+import { ApiKeyPage } from './ApiKeyPage';
+import { NetworkConfigPage } from './NetworkConfigPage';
+import { RestoreBackupPage } from './RestoreBackupPage';
+import { SettingsPage } from './SettingsPage';
+import { StorageManagementPage } from './StorageManagementPage';
 
 @Entry
 @ComponentV2
@@ -9,6 +15,7 @@ struct Index {
   @Local private selectedTab: number = 0;
   @Local private config: AppConfig = AppConfig.getInstance();
   @Local private videoListVisible: boolean = false;
+  @Local private settingsRefreshToken: number = 0;
 
   private readonly videoLibraryStack: NavPathStack = new NavPathStack();
   private readonly roomListStack: NavPathStack = new NavPathStack();
@@ -50,6 +57,37 @@ struct Index {
     NavDestination() {
       Text(`${name} - 待实现`).fontSize(18)
     }.title(name)
+  }
+
+  @Builder
+  private settingsDestinationBuilder(name: string, _param: Object) {
+    if (name === 'NetworkConfigPage') {
+      NetworkConfigPage({
+        onSettingsChanged: (): void => {
+          this.settingsRefreshToken += 1;
+        }
+      })
+    } else if (name === 'ApiKeyPage') {
+      ApiKeyPage({
+        onSettingsChanged: (): void => {
+          this.settingsRefreshToken += 1;
+        }
+      })
+    } else if (name === 'StorageManagementPage') {
+      StorageManagementPage({
+        onSettingsChanged: (): void => {
+          this.settingsRefreshToken += 1;
+        }
+      })
+    } else if (name === 'AboutPage') {
+      AboutPage()
+    } else if (name === 'RestoreBackupPage') {
+      RestoreBackupPage()
+    } else {
+      NavDestination() {
+        Text('页面不存在')
+      }
+    }
   }
 
   @Builder
@@ -100,11 +138,15 @@ struct Index {
   @Builder
   private settingsTab() {
     Navigation(this.settingsStack) {
-      this.placeholder('设置 - 待实现（TASK-6）')
+      SettingsPage({
+        stack: this.settingsStack,
+        active: this.selectedTab === 3,
+        refreshToken: this.settingsRefreshToken
+      })
     }
     .title('设置')
     .mode(NavigationMode.Stack)
-    .navDestination(this.placeholderDestinationBuilder)
+    .navDestination(this.settingsDestinationBuilder)
   }
 
   @Builder

@@ -314,7 +314,7 @@ export struct VideoListPage {
                   }
                 }
                 .swipeAction({
-                  start: (): void => {
+                  end: (): void => {
                     this.deleteSwipe(file);
                   }
                 })
