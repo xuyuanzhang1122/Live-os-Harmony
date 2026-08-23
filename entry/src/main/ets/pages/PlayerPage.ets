@@ -1011,16 +1011,8 @@ export struct PlayerPage {
   // API 12 无 VIDEO_SCALE_TYPE_SCALED_ASPECT（API 20+），native FIT 是不保比例的拉伸：
   // 由页面按 videoSizeChange 上报的宽高比把 XComponent 布局成与视频等比的矩形（等比
   // contain 居中，多余部分露出黑底），surface 比例与视频一致后 native 不再产生形变。
-  // 例外：竖屏视频在竖屏屏幕上两者比例本就接近（9:16 vs 9:19.5 一类），直接铺满即
-  // 正常观感；仅限比例差 ≤25%，差异更大的内容仍走等比 contain 防止明显变形。
-  private portraitFillApplies(videoAspect: number, areaAspect: number): boolean {
-    if (videoAspect >= 1 || areaAspect >= 1) {
-      return false;
-    }
-    const ratio: number = videoAspect / areaAspect;
-    return ratio >= 0.8 && ratio <= 1.25;
-  }
-
+  // 真机验证 FIT 严格拉伸铺满 surface：任何"直接铺满全屏"的特例（含竖屏对竖屏）都会
+  // 带来可见拉伸，故横竖屏一律走等比 contain 自适应。
   private videoSurfaceWidth(): string {
     if (this.videoWidth <= 0 || this.videoHeight <= 0 || this.hudAreaWidth <= 0 ||
       this.hudAreaHeight <= 0) {
@@ -1028,9 +1020,6 @@ export struct PlayerPage {
     }
     const videoAspect: number = this.videoWidth / this.videoHeight;
     const areaAspect: number = this.hudAreaWidth / this.hudAreaHeight;
-    if (this.portraitFillApplies(videoAspect, areaAspect)) {
-      return '100%';
-    }
     return videoAspect >= areaAspect ? '100%' : `${videoAspect / areaAspect * 100}%`;
   }
 
@@ -1041,9 +1030,6 @@ export struct PlayerPage {
     }
     const videoAspect: number = this.videoWidth / this.videoHeight;
     const areaAspect: number = this.hudAreaWidth / this.hudAreaHeight;
-    if (this.portraitFillApplies(videoAspect, areaAspect)) {
-      return '100%';
-    }
     return videoAspect >= areaAspect ? `${areaAspect / videoAspect * 100}%` : '100%';
   }
 

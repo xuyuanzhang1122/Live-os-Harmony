@@ -84,16 +84,31 @@ export struct ApiKeyPage {
     }
   }
 
+  private userName(): string {
+    if (this.user === null) {
+      return '';
+    }
+    // 服务端 key_suffix/name 等 json tag 带 omitempty，字段缺失时是 undefined 而非 null，
+    // 真机默认用户（无 key_suffix）曾在此 TypeError 直接杀进程（jscrash 实锤）。
+    return this.user.name ?? '';
+  }
+
+  private userId(): string {
+    return this.user === null ? '' : (this.user.id ?? '');
+  }
+
   private avatarLetter(): string {
-    if (this.user === null || this.user.name.length === 0) {
+    const name: string = this.userName();
+    if (name.length === 0) {
       return '?';
     }
-    return this.user.name.substring(0, 1).toUpperCase();
+    return name.substring(0, 1).toUpperCase();
   }
 
   private keyTail(): string {
-    if (this.user !== null && this.user.key_suffix !== null && this.user.key_suffix.length > 0) {
-      return this.user.key_suffix;
+    const suffix: string = this.user === null ? '' : (this.user.key_suffix ?? '');
+    if (suffix.length > 0) {
+      return suffix;
     }
     return this.savedKey.slice(Math.max(0, this.savedKey.length - 4));
   }
@@ -112,10 +127,10 @@ export struct ApiKeyPage {
           .backgroundColor($r('app.color.brand_color'))
           .borderRadius(23)
         Column({ space: 3 }) {
-          Text(this.user === null ? '' : this.user.name)
+          Text(this.userName())
             .fontSize(17)
             .fontWeight(FontWeight.Medium)
-          Text(`User ID · ${this.user === null ? '' : this.user.id}`)
+          Text(`User ID · ${this.userId()}`)
             .fontSize(12)
             .fontColor($r('sys.color.font_secondary'))
         }
