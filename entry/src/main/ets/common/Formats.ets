@@ -21,6 +21,10 @@ export class Formats {
     return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
   }
 
+  static formatDuration(seconds: number): string {
+    return Formats.formatClock(seconds);
+  }
+
   static formatSpeedLabel(value: number): string {
     const safe: number = Number.isFinite(value) ? value : 1;
     return `${safe.toFixed(2)}x`;
@@ -56,6 +60,10 @@ export function formatBytes(value: number): string {
 
 export function formatClock(seconds: number): string {
   return Formats.formatClock(seconds);
+}
+
+export function formatDuration(seconds: number): string {
+  return Formats.formatDuration(seconds);
 }
 
 export function formatSpeedLabel(value: number): string {

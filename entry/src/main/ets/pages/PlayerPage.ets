@@ -8,7 +8,7 @@ import { AppConfig } from '../config/AppConfig';
 import { WatchHistoryEntry } from '../model/HistoryEntry';
 import { VideoFileInfo } from '../model/VideoLibrary';
 import { APIClient } from '../net/APIClient';
-import { PlayerController, PlayerState } from '../player/PlayerController';
+import { PlayerController, PlayerState, withTimeout } from '../player/PlayerController';
 import { ProgressTracker } from '../player/ProgressTracker';
 import {
   clamp,
@@ -21,6 +21,7 @@ import {
 import { PLAYER_SPEEDS, playbackErrorText, timelineTarget } from '../player/PlayerRules';
 
 export type SpeedGestureMode = 'none' | 'locking' | 'unlocking' | 'locked';
+export type PlayerShutdownHandler = (reason: string) => Promise<void>;
 type HudMode = 'none' | 'seek' | 'volume' | 'brightness' | 'speed';
 
 const DIRECTION_NONE: number = 0;
@@ -62,17 +63,25 @@ class WatchHistoryReport implements WatchHistoryEntry {
   }
 }
 
+@ObservedV2
+class PlayerUiState {
+  @Trace playerState: PlayerState = 'idle';
+  @Trace isPlaying: boolean = false;
+  @Trace currentTime: number = 0;
+  @Trace duration: number = 0;
+  @Trace bufferedPercent: number = 0;
+  @Trace playbackRate: number = 1;
+  @Trace errorText: string = '';
+}
+
 @ComponentV2
 export struct PlayerPage {
   @Require @Param file: VideoFileInfo;
   @Event onClose: () => void = (): void => {};
+  @Event onShutdownReady: (handler: PlayerShutdownHandler | null) => void =
+    (_handler: PlayerShutdownHandler | null): void => {};
+  @Local private uiState: PlayerUiState = new PlayerUiState();
   @Local private chromeVisible: boolean = true;
-  @Local private playerState: PlayerState = 'idle';
-  @Local private currentTime: number = 0;
-  @Local private duration: number = 0;
-  @Local private bufferedPercent: number = 0;
-  @Local private playbackRate: number = 1.0;
-  @Local private errorText: string = '';
   @Local private toastText: string = '';
   @Local private thumbnailURL: string = '';
   @Local private timelineWidth: number = 0;
@@ -93,10 +102,14 @@ export struct PlayerPage {
   private playbackURL: string = '';
   private dragTarget: number = 0;
   private setupStarted: boolean = false;
-  private closing: boolean = false;
+  private shutdownStarted: boolean = false;
+  private shutdownTask: Promise<void> | null = null;
+  private lifecycleToken: number = 0;
   private toastTimer: number = -1;
   private hudTimer: number = -1;
   private historyTimer: number = -1;
+  private playbackSyncTimer: number = -1;
+  private lastUiLoggedSecond: number = -1;
   private hudDirection: number = DIRECTION_NONE;
   private gestureStartX: number = 0;
   private gestureStartY: number = 0;
@@ -120,72 +133,122 @@ export struct PlayerPage {
   private pipActive: boolean = false;
 
   aboutToAppear(): void {
-    this.bindPlayerCallbacks();
+    this.lifecycleToken += 1;
+    this.shutdownStarted = false;
+    this.shutdownTask = null;
+    this.setupStarted = false;
+    this.bindPlayerCallbacks(this.lifecycleToken);
+    this.onShutdownReady((reason: string): Promise<void> => this.shutdownPlayer(reason));
     this.resolveURLs();
     this.tracker.start();
     this.startHistoryTimer();
-    this.enterImmersiveMode();
+    this.enterImmersiveMode(this.lifecycleToken);
     this.detectPiP();
     this.initializeMediaVolume();
   }
 
   aboutToDisappear(): void {
-    this.clearTimers();
-    this.restoreWindowState();
-    this.reportHistory(false);
-    this.stopPiP().catch((): void => {});
-    this.tracker.stop();
-    this.controller.pause()
-      .then((): Promise<void> => this.controller.release())
-      .catch((): void => {});
+    // 任何卸载路径都必须走同一个幂等关闭漏斗：surface 尚未 setup 就退出时，
+    // 沉浸模式与 history 定时器同样需要恢复/清理，不能跳过。
+    this.shutdownPlayer('aboutToDisappear').catch((): void => {});
   }
 
-  private bindPlayerCallbacks(): void {
+  private bindPlayerCallbacks(token: number): void {
     this.controller.onStateChange = (state: PlayerState): void => {
-      log(`page state ${this.previousState} -> ${state}`);
-      const wasPlaying: boolean = this.previousState === 'playing';
-      const playbackChanged: boolean = (wasPlaying && state === 'paused') ||
-        (this.previousState === 'paused' && state === 'playing');
-      this.previousState = state;
-      this.playerState = state;
-      if (playbackChanged) {
-        Haptics.light();
-      }
-      if (wasPlaying && state === 'paused' && !this.tracker.isInteracting) {
-        this.reportHistory(true);
-      }
-      if (state === 'completed') {
-        this.currentTime = this.duration;
-        this.chromeVisible = true;
-      }
+      this.runUiTask((): void => {
+        if (!this.isLifecycleActive(token)) {
+          return;
+        }
+        log(`page state ${this.previousState} -> ${state}`);
+        const wasPlaying: boolean = this.previousState === 'playing';
+        const playbackChanged: boolean = (wasPlaying && state === 'paused') ||
+          (this.previousState === 'paused' && state === 'playing');
+        this.previousState = state;
+        this.applyUiPlaybackState(state, 'native stateChange');
+        if (playbackChanged) {
+          Haptics.light();
+        }
+        if (wasPlaying && state === 'paused' && !this.tracker.isInteracting) {
+          this.reportHistory(true);
+        }
+        if (state === 'completed') {
+          this.uiState.currentTime = this.uiState.duration;
+          this.chromeVisible = true;
+        }
+      });
     };
     this.controller.onError = (_code: number, _message: string): void => {
-      this.errorText = playbackErrorText(this.file.playback_status);
-      this.chromeVisible = false;
-      this.isResumeSettled = true;
+      this.runUiTask((): void => {
+        if (!this.isLifecycleActive(token)) {
+          return;
+        }
+        this.uiState.errorText = playbackErrorText(this.file.playback_status);
+        this.chromeVisible = false;
+        this.isResumeSettled = true;
+      });
     };
     this.controller.onDurationReady = (seconds: number): void => {
-      this.duration = seconds;
-      this.tryResumeFromHistory();
+      this.runUiTask((): void => {
+        if (!this.isLifecycleActive(token)) {
+          return;
+        }
+        this.uiState.duration = seconds;
+        this.uiState.currentTime = this.clampedUiTime(this.uiState.currentTime);
+        log(`page duration uiSeconds=${this.uiState.duration.toFixed(3)}`);
+        this.tryResumeFromHistory();
+      });
+    };
+    this.controller.onTimeUpdate = (_seconds: number): void => {
+      this.runUiTask((): void => {
+        if (this.isLifecycleActive(token)) {
+          this.tracker.sampleNow();
+        }
+      });
     };
     this.controller.onSeekDone = (seconds: number): void => {
+      if (!this.isLifecycleActive(token)) {
+        return;
+      }
       this.tracker.handleSeekDone(seconds).then((): void => {
         this.reportHistory(true);
       }).catch((): void => {});
     };
     this.controller.onSpeedChange = (rate: number): void => {
-      this.playbackRate = rate;
-      if (this.speedMode === 'locking' || this.speedMode === 'locked' || this.speedMode === 'unlocking') {
-        return;
-      }
-      this.showToast(`播放速度 ${Formats.formatSpeedLabel(rate)}`);
+      this.runUiTask((): void => {
+        if (!this.isLifecycleActive(token)) {
+          return;
+        }
+        this.uiState.playbackRate = rate;
+        if (this.speedMode === 'locking' || this.speedMode === 'locked' || this.speedMode === 'unlocking') {
+          return;
+        }
+        this.showToast(`播放速度 ${Formats.formatSpeedLabel(rate)}`);
+      });
     };
     this.controller.onBufferingUpdate = (percent: number): void => {
-      this.bufferedPercent = percent;
+      this.runUiTask((): void => {
+        if (this.isLifecycleActive(token)) {
+          this.uiState.bufferedPercent = percent;
+        }
+      });
     };
     this.tracker.onTimeUpdate = (seconds: number): void => {
-      this.currentTime = seconds;
+      this.runUiTask((): void => {
+        if (!this.isLifecycleActive(token)) {
+          return;
+        }
+        this.uiState.currentTime = this.clampedUiTime(seconds);
+        const wholeSecond: number = Math.floor(this.uiState.currentTime);
+        if (wholeSecond !== this.lastUiLoggedSecond) {
+          this.lastUiLoggedSecond = wholeSecond;
+          log(`page time uiSeconds=${this.uiState.currentTime.toFixed(3)} durationSeconds=${this.uiState.duration.toFixed(3)}`);
+        }
+      });
     };
+  }
+
+  private runUiTask(task: () => void): void {
+    this.getUIContext().runScopedTask(task);
   }
 
   private resolveURLs(): void {
@@ -193,14 +256,14 @@ export struct PlayerPage {
     const hasDirectURL: boolean = (this.file.hls_url?.length ?? 0) > 0 ||
       (this.file.file_url?.length ?? 0) > 0;
     if (this.file.rel_path.trim().length === 0 && !hasDirectURL) {
-      this.errorText = playbackErrorText(this.file.playback_status);
+      this.uiState.errorText = playbackErrorText(this.file.playback_status);
       this.chromeVisible = false;
       this.isResumeSettled = true;
       return;
     }
     this.playbackURL = APIClient.buildPlaybackUrl(client.baseURL, client.apiKey, this.file);
     if (!/^https?:\/\//i.test(this.playbackURL)) {
-      this.errorText = playbackErrorText(this.file.playback_status);
+      this.uiState.errorText = playbackErrorText(this.file.playback_status);
       this.chromeVisible = false;
       this.isResumeSettled = true;
       return;
@@ -210,7 +273,8 @@ export struct PlayerPage {
   }
 
   private setupPlayer(surfaceId: string): void {
-    if (this.setupStarted || this.errorText.length > 0 || this.playbackURL.length === 0) {
+    if (this.shutdownStarted || this.setupStarted || this.uiState.errorText.length > 0 ||
+      this.playbackURL.length === 0) {
       return;
     }
     this.setupStarted = true;
@@ -218,42 +282,126 @@ export struct PlayerPage {
   }
 
   private async togglePlayback(source: string): Promise<void> {
+    if (this.shutdownStarted) {
+      return;
+    }
     const nativeState: PlayerState = this.controller.state;
-    log(`toggle source=${source} ui=${this.playerState} native=${nativeState} interacting=${this.tracker.isInteracting}`);
+    log(`toggle source=${source} ui=${this.uiState.playerState} native=${nativeState} interacting=${this.tracker.isInteracting}`);
     if (this.tracker.isInteracting) {
       log('toggle ignored: progress interaction active');
       return;
     }
     if (nativeState === 'completed') {
-      this.replay();
+      await this.replay();
+      return;
     } else if (nativeState === 'playing') {
-      await this.controller.pause();
+      await withTimeout(this.controller.pause(), 3000, `toggle pause (${source})`);
     } else if (nativeState === 'prepared' || nativeState === 'paused') {
-      await this.controller.play();
+      await withTimeout(this.controller.play(), 3000, `toggle play (${source})`);
     } else {
       log(`toggle ignored by state guard: ${nativeState}`);
+      return;
     }
+    this.syncUiPlaybackState(`${source} promise`);
+    this.schedulePlaybackStateSync(`${source} delayed`);
   }
 
-  private replay(): void {
+  private async replay(): Promise<void> {
     this.controller.seek(0);
-    this.currentTime = 0;
-    this.controller.play().catch((): void => {});
+    this.uiState.currentTime = 0;
+    await withTimeout(this.controller.play(), 3000, 'replay play');
+    this.syncUiPlaybackState('replay promise');
+    this.schedulePlaybackStateSync('replay delayed');
   }
 
   private async closePlayer(): Promise<void> {
-    if (this.closing) {
+    await this.shutdownPlayer('close button');
+  }
+
+  private shutdownPlayer(reason: string): Promise<void> {
+    if (this.shutdownTask !== null) {
+      log(`shutdown joined reason=${reason}`);
+      return this.shutdownTask;
+    }
+    this.shutdownStarted = true;
+    this.lifecycleToken += 1;
+    this.shutdownTask = this.performShutdown(reason);
+    return this.shutdownTask;
+  }
+
+  private async performShutdown(reason: string): Promise<void> {
+    log(`shutdown begin reason=${reason} native=${this.controller.state}`);
+    this.clearTimers();
+    this.hudDirection = DIRECTION_NONE;
+    this.speedGestureStarted = false;
+    this.tracker.stop();
+    log(`shutdown tracker stopped reason=${reason}`);
+    log(`shutdown pause begin native=${this.controller.state}`);
+    await withTimeout(this.controller.pause(), 3000, 'shutdown pause');
+    log(`shutdown pause settled native=${this.controller.state}`);
+    await withTimeout(this.reportHistory(false), 2500, 'shutdown report');
+    await withTimeout(this.stopPiP(), 2500, 'shutdown pip');
+    log(`shutdown release begin native=${this.controller.state}`);
+    const releaseSettled: boolean = await withTimeout(this.controller.release(), 8000, 'shutdown release') !== null;
+    const finalState: PlayerState = this.controller.state;
+    log(`shutdown release settled=${releaseSettled} native=${finalState}`);
+    // 任务书要求：页面退出后再次检查 native state，不能仍为 playing。
+    // release() 内部链路自带逐级超时并会在后台继续执行，此处仅记录验证结果。
+    if (finalState === 'playing') {
+      log(`shutdown verify FAILED native still playing after release attempt`);
+    } else {
+      log(`shutdown verify ok native=${finalState}`);
+    }
+    this.clearPlayerCallbacks();
+    await withTimeout(this.restoreWindowState(), 1500, 'shutdown restore window');
+    this.onShutdownReady(null);
+    log(`shutdown close cover reason=${reason} native=${this.controller.state}`);
+    this.onClose();
+  }
+
+  private isLifecycleActive(token: number): boolean {
+    return token === this.lifecycleToken && !this.shutdownStarted;
+  }
+
+  private applyUiPlaybackState(state: PlayerState, source: string): void {
+    if (this.shutdownStarted) {
       return;
     }
-    this.closing = true;
-    this.clearTimers();
-    await this.stopPiP();
-    await this.controller.pause();
-    await this.reportHistory(false);
-    this.tracker.stop();
-    await this.controller.release();
-    this.restoreWindowState();
-    this.onClose();
+    this.uiState.playerState = state;
+    this.uiState.isPlaying = state === 'playing';
+    log(`ui state source=${source} state=${state} isUiPlaying=${this.uiState.isPlaying}`);
+  }
+
+  private syncUiPlaybackState(source: string): void {
+    this.applyUiPlaybackState(this.controller.state, source);
+  }
+
+  private schedulePlaybackStateSync(source: string): void {
+    if (this.playbackSyncTimer >= 0) {
+      clearTimeout(this.playbackSyncTimer);
+    }
+    const token: number = this.lifecycleToken;
+    this.playbackSyncTimer = setTimeout((): void => {
+      this.playbackSyncTimer = -1;
+      if (this.isLifecycleActive(token)) {
+        this.syncUiPlaybackState(source);
+      }
+    }, 120);
+  }
+
+  private clampedUiTime(seconds: number): number {
+    return this.uiState.duration > 0 ? clamp(seconds, 0, this.uiState.duration) : 0;
+  }
+
+  private clearPlayerCallbacks(): void {
+    this.controller.onStateChange = (_state: PlayerState): void => {};
+    this.controller.onError = (_code: number, _message: string): void => {};
+    this.controller.onTimeUpdate = (_seconds: number): void => {};
+    this.controller.onDurationReady = (_seconds: number): void => {};
+    this.controller.onSeekDone = (_seconds: number): void => {};
+    this.controller.onSpeedChange = (_rate: number): void => {};
+    this.controller.onBufferingUpdate = (_percent: number): void => {};
+    this.tracker.onTimeUpdate = (_seconds: number): void => {};
   }
 
   private startHistoryTimer(): void {
@@ -268,11 +416,11 @@ export struct PlayerPage {
   }
 
   private async reportHistory(showSuccess: boolean): Promise<void> {
-    if (!this.isResumeSettled || this.reporting || this.closing && this.duration < 1) {
+    if (!this.isResumeSettled || this.reporting || this.shutdownStarted && this.uiState.duration < 1) {
       return;
     }
     const relPath: string = this.file.rel_path.trim();
-    if (this.duration < 1 || relPath.length === 0) {
+    if (this.uiState.duration < 1 || relPath.length === 0) {
       return;
     }
     if (!this.config.apiKeyBound) {
@@ -285,9 +433,9 @@ export struct PlayerPage {
     this.reporting = true;
     try {
       const entry: WatchHistoryEntry = new WatchHistoryReport(relPath, this.file.name,
-        Math.max(this.controller.currentTime, this.currentTime, 0), this.duration);
+        Math.max(this.controller.currentTime, this.uiState.currentTime, 0), this.uiState.duration);
       await this.config.getClient().postHistory(entry);
-      if (showSuccess && !this.closing) {
+      if (showSuccess && !this.shutdownStarted) {
         this.showToast('已同步到服务端');
       }
     } catch (_) {
@@ -314,7 +462,7 @@ export struct PlayerPage {
   }
 
   private tryResumeFromHistory(): void {
-    if (this.historyResumeTried || this.duration <= 0) {
+    if (this.historyResumeTried || this.uiState.duration <= 0) {
       return;
     }
     const relPath: string = this.file.rel_path.trim();
@@ -330,13 +478,13 @@ export struct PlayerPage {
 
   private async applyResume(relPath: string): Promise<void> {
     const entry: WatchHistoryEntry | null = await this.fetchHistory(relPath);
-    if (this.closing || entry === null || !shouldResume(entry.position_seconds, this.duration)) {
+    if (this.shutdownStarted || entry === null || !shouldResume(entry.position_seconds, this.uiState.duration)) {
       this.isResumeSettled = true;
       return;
     }
-    const target: number = resumeTarget(entry.position_seconds, this.duration);
+    const target: number = resumeTarget(entry.position_seconds, this.uiState.duration);
     let succeeded: boolean = false;
-    for (let attempt: number = 0; attempt < RESUME_RETRY_COUNT && !this.closing; attempt++) {
+    for (let attempt: number = 0; attempt < RESUME_RETRY_COUNT && !this.shutdownStarted; attempt++) {
       this.controller.seek(target);
       await delay(RESUME_RETRY_DELAY_MS);
       if (Math.abs(this.controller.currentTime - target) < RESUME_TOLERANCE_SECONDS) {
@@ -344,12 +492,12 @@ export struct PlayerPage {
         break;
       }
     }
-    if (!succeeded && !this.closing) {
+    if (!succeeded && !this.shutdownStarted) {
       this.controller.seek(0);
     }
     this.isResumeSettled = true;
-    if (succeeded && !this.closing) {
-      this.currentTime = target;
+    if (succeeded && !this.shutdownStarted) {
+      this.uiState.currentTime = target;
       this.showToast(`已从 ${Formats.formatClock(target)} 继续播放`);
     }
   }
@@ -397,22 +545,34 @@ export struct PlayerPage {
       clearInterval(this.historyTimer);
       this.historyTimer = -1;
     }
+    if (this.playbackSyncTimer >= 0) {
+      clearTimeout(this.playbackSyncTimer);
+      this.playbackSyncTimer = -1;
+    }
   }
 
   private onPanStart(event: GestureEvent): void {
+    if (this.speedGestureStarted) {
+      return;
+    }
     this.gestureStartX = this.eventLocalX(event, this.hudAreaWidth / 2);
     this.gestureStartY = this.eventLocalY(event, this.hudAreaHeight / 2);
     this.hudDirection = DIRECTION_NONE;
   }
 
   private onPanUpdate(event: GestureEvent): void {
+    if (this.speedGestureStarted) {
+      this.updateSpeedPull(event);
+      return;
+    }
     const offsetX: number = event.offsetX ?? 0;
     const offsetY: number = event.offsetY ?? 0;
     if (this.hudDirection === DIRECTION_NONE && !this.lockPanDirection(offsetX, offsetY)) {
       return;
     }
     if (this.hudDirection === DIRECTION_SEEK) {
-      const target: number = horizontalSeekTarget(this.hudSeekBase, offsetX, this.hudAreaWidth, this.duration);
+      const target: number = horizontalSeekTarget(this.hudSeekBase, offsetX, this.hudAreaWidth,
+        this.uiState.duration);
       this.hudSeekTarget = target;
       this.hudSeekDelta = target - this.hudSeekBase;
       this.tracker.updateInteracting(target);
@@ -430,12 +590,12 @@ export struct PlayerPage {
       return false;
     }
     if (Math.abs(offsetX) > Math.abs(offsetY)) {
-      if (this.duration <= 0) {
+      if (this.uiState.duration <= 0) {
         return false;
       }
       this.hudDirection = DIRECTION_SEEK;
-      this.hudSeekBase = this.currentTime;
-      this.hudSeekTarget = this.currentTime;
+      this.hudSeekBase = this.uiState.currentTime;
+      this.hudSeekTarget = this.uiState.currentTime;
       this.hudSeekDelta = 0;
       this.tracker.beginInteracting();
       this.showHud('seek');
@@ -449,6 +609,10 @@ export struct PlayerPage {
   }
 
   private onPanEnd(): void {
+    if (this.speedGestureStarted) {
+      this.onSpeedLongPressEnd();
+      return;
+    }
     if (this.hudDirection === DIRECTION_SEEK) {
       this.tracker.endInteracting(this.hudSeekTarget);
     }
@@ -457,6 +621,9 @@ export struct PlayerPage {
   }
 
   private onPanCancel(): void {
+    if (this.speedGestureStarted) {
+      return;
+    }
     if (this.hudDirection === DIRECTION_SEEK) {
       this.tracker.cancelInteracting().catch((): void => {});
     }
@@ -468,13 +635,14 @@ export struct PlayerPage {
     const x: number = this.eventLocalX(event, this.hudAreaWidth / 2);
     const y: number = this.eventLocalY(event, this.hudAreaHeight / 2);
     if (!this.speedGestureStarted) {
-      if (!isSideZone(x, this.hudAreaWidth)) {
+      // 横滑/竖滑/长按下拉三种手势互斥：已有 pan 方向锁定（含 tracker 交互冻结）时不再进入倍速手势。
+      if (this.hudDirection !== DIRECTION_NONE || !isSideZone(x, this.hudAreaWidth)) {
         return;
       }
       this.speedGestureStarted = true;
       this.gestureStartY = y;
       this.speedBaseRate = this.speedMode === 'locked' || this.speedMode === 'unlocking' ?
-        this.speedBaseRate : this.playbackRate;
+        this.speedBaseRate : this.uiState.playbackRate;
       if (this.speedMode === 'locked' || this.speedMode === 'unlocking') {
         this.speedMode = 'unlocking';
         this.speedHudMessage = '下拉解锁 2 倍速';
@@ -488,17 +656,27 @@ export struct PlayerPage {
       Haptics.light();
       return;
     }
+    this.updateSpeedPull(event);
+  }
+
+  private updateSpeedPull(event: GestureEvent): void {
+    if (!this.speedGestureStarted) {
+      return;
+    }
+    const y: number = this.eventLocalY(event, this.gestureStartY);
     if (!lockPullSatisfied(this.gestureStartY, y, this.hudAreaHeight)) {
       return;
     }
     if (this.speedMode === 'locking') {
       this.speedMode = 'locked';
       this.speedHudMessage = '已锁定 2 倍速';
+      log(`speed locking -> locked startY=${this.gestureStartY} currentY=${y} screenHeight=${this.hudAreaHeight}`);
       Haptics.medium();
     } else if (this.speedMode === 'unlocking') {
       this.speedMode = 'none';
       this.speedHudMessage = '下拉解锁 2 倍速';
       this.controller.setSpeed(this.speedBaseRate);
+      log(`speed unlocking -> none baseRate=${this.speedBaseRate}`);
       Haptics.medium();
     }
   }
@@ -567,12 +745,15 @@ export struct PlayerPage {
     await manager.setVolume(audio.AudioVolumeType.MEDIA, level);
   }
 
-  private enterImmersiveMode(): void {
+  private enterImmersiveMode(token: number): void {
     const context: common.Context | undefined = this.getUIContext().getHostContext();
     if (context === undefined) {
       return;
     }
     window.getLastWindow(context).then((win: window.Window): void => {
+      if (!this.isLifecycleActive(token)) {
+        return;
+      }
       this.playerWindow = win;
       try {
         win.setImmersiveModeEnabledState(true);
@@ -580,8 +761,13 @@ export struct PlayerPage {
       }
       try {
         win.setWindowSystemBarEnable([]).then((): void => {
-          this.topSystemInset = 0;
-          this.bottomSystemInset = 0;
+          if (this.isLifecycleActive(token)) {
+            this.topSystemInset = 0;
+            this.bottomSystemInset = 0;
+          } else {
+            win.setWindowSystemBarEnable(['status', 'navigation']).catch((): void => {});
+            try { win.setImmersiveModeEnabledState(false); } catch (_) {}
+          }
         }).catch((): void => this.applyAvoidAreaFallback(win));
       } catch (_) {
         this.applyAvoidAreaFallback(win);
@@ -600,24 +786,28 @@ export struct PlayerPage {
     }
   }
 
-  private restoreWindowState(): void {
+  private async restoreWindowState(): Promise<void> {
     const win: window.Window | null = this.playerWindow;
     if (win === null) {
       return;
     }
     if (this.brightnessChanged) {
-      win.setWindowBrightness(-1).catch((): void => {});
+      try {
+        await win.setWindowBrightness(-1);
+      } catch (_) {
+      }
       this.brightnessChanged = false;
     }
     try {
       // setWindowSystemBarEnable 仅接受 status/navigation；导航指示条由 setImmersiveModeEnabledState 一并恢复
-      win.setWindowSystemBarEnable(['status', 'navigation']).catch((): void => {});
+      await win.setWindowSystemBarEnable(['status', 'navigation']);
     } catch (_) {
     }
     try {
       win.setImmersiveModeEnabledState(false);
     } catch (_) {
     }
+    this.playerWindow = null;
   }
 
   private detectPiP(): void {
@@ -683,11 +873,12 @@ export struct PlayerPage {
   }
 
   private progressPercent(): number {
-    return this.duration <= 0 ? 0 : clamp(this.currentTime / this.duration * 100, 0, 100);
+    return this.uiState.duration <= 0 ? 0 :
+      clamp(this.uiState.currentTime / this.uiState.duration * 100, 0, 100);
   }
 
   private bufferedWidthPercent(): number {
-    return clamp(Math.max(this.bufferedPercent, this.progressPercent()), 0, 100);
+    return clamp(Math.max(this.uiState.bufferedPercent, this.progressPercent()), 0, 100);
   }
 
   private thumbOffset(): number {
@@ -719,8 +910,12 @@ export struct PlayerPage {
   }
 
   private updateTimeline(event: GestureEvent): void {
+    if (this.uiState.duration <= 0 || this.timelineWidth <= 0) {
+      return;
+    }
     const fallback: number = this.progressPercent() / 100 * this.timelineWidth;
-    this.dragTarget = timelineTarget(this.eventLocalX(event, fallback), this.timelineWidth, this.duration);
+    this.dragTarget = timelineTarget(this.eventLocalX(event, fallback), this.timelineWidth,
+      this.uiState.duration);
     this.tracker.updateInteracting(this.dragTarget);
   }
 
@@ -733,6 +928,10 @@ export struct PlayerPage {
     this.speedGestureStarted = false;
     this.speedBaseRate = rate;
     this.controller.setSpeed(rate);
+    // 契约：菜单显式选择倍速即清除锁定状态，SpeedHUD 按 1.2s 延迟淡出。
+    if (this.hudMode === 'speed') {
+      this.scheduleHudHide();
+    }
     Promise.resolve().then((): void => {
       this.speedSelectionWriting = false;
     });
@@ -751,7 +950,7 @@ export struct PlayerPage {
     Menu() {
       ForEach(PLAYER_SPEEDS, (rate: number): void => {
         MenuItem({ content: Formats.formatSpeedLabel(rate) })
-          .selected(this.playbackRate === rate)
+          .selected(this.uiState.playbackRate === rate)
           .selectIcon(true)
           .onChange((selected: boolean): void => {
             if (selected && !this.speedSelectionWriting) {
@@ -816,15 +1015,17 @@ export struct PlayerPage {
               this.chromeVisible = !this.chromeVisible;
             }
           }),
-          LongPressGesture({ fingers: 1, repeat: true, duration: 500 })
-            .onAction((event: GestureEvent): void => this.onSpeedLongPress(event))
-            .onActionEnd((): void => this.onSpeedLongPressEnd())
-            .onActionCancel((): void => this.onSpeedLongPressCancel()),
-          PanGesture({ fingers: 1, direction: PanDirection.All, distance: DIRECTION_THRESHOLD_VP })
-            .onActionStart((event: GestureEvent): void => this.onPanStart(event))
-            .onActionUpdate((event: GestureEvent): void => this.onPanUpdate(event))
-            .onActionEnd((): void => this.onPanEnd())
-            .onActionCancel((): void => this.onPanCancel())
+          GestureGroup(GestureMode.Parallel,
+            LongPressGesture({ fingers: 1, repeat: true, duration: 500 })
+              .onAction((event: GestureEvent): void => this.onSpeedLongPress(event))
+              .onActionEnd((): void => this.onSpeedLongPressEnd())
+              .onActionCancel((): void => this.onSpeedLongPressCancel()),
+            PanGesture({ fingers: 1, direction: PanDirection.All, distance: DIRECTION_THRESHOLD_VP })
+              .onActionStart((event: GestureEvent): void => this.onPanStart(event))
+              .onActionUpdate((event: GestureEvent): void => this.onPanUpdate(event))
+              .onActionEnd((): void => this.onPanEnd())
+              .onActionCancel((): void => this.onPanCancel())
+          )
         )
       )
   }
@@ -835,7 +1036,7 @@ export struct PlayerPage {
       if (this.hudMode === 'seek') {
         Row({ space: 10 }) {
           Text(this.seekDirectionLabel()).fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White)
-          Text(`${Formats.formatClock(this.hudSeekTarget)} / ${Formats.formatClock(this.duration)}`)
+          Text(`${Formats.formatDuration(this.hudSeekTarget)} / ${Formats.formatDuration(this.uiState.duration)}`)
             .fontSize(18).fontFamily('monospace').fontColor(Color.White)
         }
         .padding({ left: 18, right: 18, top: 10, bottom: 10 })
@@ -843,16 +1044,20 @@ export struct PlayerPage {
       } else if (this.hudMode === 'volume' || this.hudMode === 'brightness') {
         Row({ space: 12 }) {
           if (this.hudMode === 'volume') {
-            SymbolGlyph($r('sys.symbol.speaker_fill')).fontSize(22).fontColor([Color.White])
+            if (this.hudVolume <= 0) {
+              SymbolGlyph($r('sys.symbol.speaker_slash')).fontSize(24).fontColor([Color.White]).width(28)
+            } else {
+              SymbolGlyph($r('sys.symbol.speaker_fill')).fontSize(24).fontColor([Color.White]).width(28)
+            }
           } else {
-            SymbolGlyph($r('sys.symbol.sun_max')).fontSize(22).fontColor([Color.White])
+            SymbolGlyph($r('sys.symbol.sun_max')).fontSize(24).fontColor([Color.White]).width(28)
           }
           Progress({
             value: (this.hudMode === 'volume' ? this.hudVolume : this.hudBrightness) * 100,
             total: 100,
             type: ProgressType.Linear
           })
-            .width(150).color($r('app.color.brand_color')).backgroundColor('#33FFFFFF')
+            .width(150).height(8).color($r('app.color.brand_color')).backgroundColor('#33FFFFFF')
         }
         .padding({ left: 18, right: 18, top: 12, bottom: 12 })
         .backgroundColor('#88000000').backgroundBlurStyle(BlurStyle.BACKGROUND_THIN).borderRadius(14)
@@ -908,7 +1113,9 @@ export struct PlayerPage {
       }
       .width(68).height(68).backgroundColor('#66000000')
       .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN).borderRadius(34)
-      .onClick((): void => this.replay())
+      .onClick((): void => {
+        this.replay().catch((): void => {});
+      })
     }
     .width('100%').height('100%').justifyContent(FlexAlign.Center)
     .backgroundColor('#66000000').hitTestBehavior(HitTestMode.Transparent)
@@ -917,7 +1124,7 @@ export struct PlayerPage {
   @Builder
   private timeline() {
     Row({ space: 10 }) {
-      Text(Formats.formatClock(this.currentTime)).width(58).fontSize(12).fontFamily('monospace')
+      Text(Formats.formatDuration(this.uiState.currentTime)).width(58).fontSize(12).fontFamily('monospace')
         .fontColor(Color.White).textAlign(TextAlign.End)
       Stack({ alignContent: Alignment.Start }) {
         Row().width('100%').height(4).backgroundColor('#33FFFFFF').borderRadius(2)
@@ -927,14 +1134,14 @@ export struct PlayerPage {
         Column().width(14).height(14).borderRadius(7)
           .backgroundColor($r('app.color.brand_color')).translate({ x: this.thumbOffset() })
       }
-      .layoutWeight(1).height(34)
+      .layoutWeight(1).height(34).enabled(this.uiState.duration > 0)
       .onAreaChange((_oldArea: Area, newArea: Area): void => {
         this.timelineWidth = Number(newArea.width);
       })
       .gesture(
         PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 0 })
           .onActionStart((event: GestureEvent): void => {
-            if (this.duration <= 0) {
+            if (this.uiState.duration <= 0) {
               return;
             }
             this.tracker.beginInteracting();
@@ -949,7 +1156,7 @@ export struct PlayerPage {
             this.tracker.cancelInteracting().catch((): void => {});
           })
       )
-      Text(Formats.formatClock(this.duration)).width(58).fontSize(12).fontFamily('monospace')
+      Text(Formats.formatDuration(this.uiState.duration)).width(58).fontSize(12).fontFamily('monospace')
         .fontColor(Color.White)
     }
     .width('100%')
@@ -985,25 +1192,25 @@ export struct PlayerPage {
         this.timeline()
         Row() {
           Button() {
-            if (this.playerState === 'completed') {
+            if (this.uiState.playerState === 'completed') {
               SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(25).fontColor([Color.White])
-            } else if (this.playerState === 'playing') {
+            } else if (this.uiState.isPlaying) {
               SymbolGlyph($r('sys.symbol.pause_fill')).fontSize(21).fontColor([Color.White])
             } else {
               SymbolGlyph($r('sys.symbol.play_fill')).fontSize(25).fontColor([Color.White])
             }
           }
           .type(ButtonType.Circle).width(48).height(48).backgroundColor('#33000000')
-          .enabled(this.playerState === 'prepared' || this.playerState === 'playing' ||
-            this.playerState === 'paused' || this.playerState === 'completed')
+          .enabled(this.uiState.playerState === 'prepared' || this.uiState.playerState === 'playing' ||
+            this.uiState.playerState === 'paused' || this.uiState.playerState === 'completed')
           .hitTestBehavior(HitTestMode.Block)
           .onClick((): void => {
-            log(`play button click enabled state=${this.playerState}`);
+            log(`play button click enabled state=${this.uiState.playerState}`);
             this.togglePlayback('button').catch((): void => {});
           })
           Blank()
-          Button(Formats.formatSpeedLabel(this.playbackRate)).height(40).fontSize(13)
-            .fontColor(Color.White).backgroundColor('#33000000').enabled(this.duration > 0)
+          Button(Formats.formatSpeedLabel(this.uiState.playbackRate)).height(40).fontSize(13)
+            .fontColor(Color.White).backgroundColor('#33000000').enabled(this.uiState.duration > 0)
             .hitTestBehavior(HitTestMode.Block).bindMenu(this.speedMenu)
         }
         .width('100%')
@@ -1017,7 +1224,7 @@ export struct PlayerPage {
   @Builder
   private errorLayer() {
     Column({ space: 22 }) {
-      Text(this.errorText).fontSize(18).fontWeight(FontWeight.Medium).fontColor(Color.White)
+      Text(this.uiState.errorText).fontSize(18).fontWeight(FontWeight.Medium).fontColor(Color.White)
       Button('退出').height(44).fontColor(Color.White).backgroundColor($r('app.color.brand_color'))
         .onClick((): void => {
           this.closePlayer().catch((): void => {});
@@ -1036,11 +1243,11 @@ export struct PlayerPage {
       this.topHud()
       this.speedHud()
       this.toastLayer()
-      if (this.playerState === 'completed' && this.errorText.length === 0) {
+      if (this.uiState.playerState === 'completed' && this.uiState.errorText.length === 0) {
         this.completedLayer()
       }
       this.controlLayer()
-      if (this.errorText.length > 0) {
+      if (this.uiState.errorText.length > 0) {
         this.errorLayer()
       }
     }

@@ -222,6 +222,8 @@ export default function task1InfrastructureTest(): void {
       expect(Formats.formatBytes(1024 * 1024 * 1024)).assertEqual('1.0 GB');
       expect(Formats.formatClock(65)).assertEqual('01:05');
       expect(Formats.formatClock(3661)).assertEqual('1:01:01');
+      expect(Formats.formatDuration(65)).assertEqual('01:05');
+      expect(Formats.formatDuration(Number.NaN)).assertEqual('00:00');
       expect(Formats.formatSpeedLabel(0.5)).assertEqual('0.50x');
     });
 

@@ -104,7 +104,7 @@ export class ProgressTracker {
 
   async handleSeekDone(seconds: number): Promise<void> {
     const pendingTarget: number | null = this.pendingSeekTarget;
-    if (!this.isInteracting || pendingTarget === null || Math.abs(seconds - pendingTarget) > 0.05) {
+    if (!this.isInteracting || pendingTarget === null) {
       return;
     }
     const token: number = this.interactionToken;

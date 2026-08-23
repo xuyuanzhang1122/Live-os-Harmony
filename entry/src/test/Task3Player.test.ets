@@ -17,7 +17,8 @@ import {
   PlayerNumberHandler,
   PlayerOperationError,
   PlayerState,
-  PlayerStateHandler
+  PlayerStateHandler,
+  withTimeout
 } from '../main/ets/player/PlayerController';
 
 class FakeProgressSource implements ProgressSource {
@@ -61,6 +62,8 @@ class FakePlayerAdapter implements PlayerAdapter {
   boundCount: number = 0;
   unboundCount: number = 0;
   speedDoneHandler: PlayerNumberHandler = (_rate: number): void => {};
+  timeUpdateHandler: PlayerNumberHandler = (_milliseconds: number): void => {};
+  durationUpdateHandler: PlayerNumberHandler = (_milliseconds: number): void => {};
   private stateHandler: PlayerStateHandler = (_state: PlayerState): void => {};
 
   get url(): string {
@@ -140,8 +143,19 @@ class FakePlayerAdapter implements PlayerAdapter {
   offError(_handler: PlayerErrorHandler): void { this.unboundCount += 1; }
   onSeekDone(_handler: PlayerNumberHandler): void { this.boundCount += 1; }
   offSeekDone(_handler: PlayerNumberHandler): void { this.unboundCount += 1; }
-  onDurationUpdate(_handler: PlayerNumberHandler): void { this.boundCount += 1; }
+  onDurationUpdate(handler: PlayerNumberHandler): void {
+    this.durationUpdateHandler = handler;
+    this.boundCount += 1;
+  }
   offDurationUpdate(_handler: PlayerNumberHandler): void { this.unboundCount += 1; }
+  onTimeUpdate(handler: PlayerNumberHandler): void {
+    this.timeUpdateHandler = handler;
+    this.boundCount += 1;
+  }
+  offTimeUpdate(_handler: PlayerNumberHandler): void {
+    this.timeUpdateHandler = (_milliseconds: number): void => {};
+    this.unboundCount += 1;
+  }
   onSpeedDone(handler: PlayerNumberHandler): void {
     this.speedDoneHandler = handler;
     this.boundCount += 1;
@@ -155,11 +169,38 @@ class FakePlayerAdapter implements PlayerAdapter {
   emitSpeedDone(rate: number): void {
     this.speedDoneHandler(rate);
   }
+
+  emitTimeUpdate(milliseconds: number): void {
+    this.timeUpdateHandler(milliseconds);
+  }
+
+  emitDurationUpdate(milliseconds: number): void {
+    this.durationUpdateHandler(milliseconds);
+  }
 }
 
 class FailingPreparePlayerAdapter extends FakePlayerAdapter {
   async prepare(): Promise<void> {
     throw new PlayerOperationError(5400106, 'unsupported format');
+  }
+}
+
+class SilentPlaybackStateAdapter extends FakePlayerAdapter {
+  async play(): Promise<void> {
+    this.calls.push('play');
+    this.state = 'playing';
+  }
+
+  async pause(): Promise<void> {
+    this.calls.push('pause');
+    this.state = 'paused';
+  }
+}
+
+class HangingPausePlayerAdapter extends FakePlayerAdapter {
+  async pause(): Promise<void> {
+    this.calls.push('pause');
+    await new Promise<void>((_resolve: () => void): void => {});
   }
 }
 
@@ -251,6 +292,21 @@ export default function task3PlayerTest(): void {
       expect(source.playCount).assertEqual(1);
     });
 
+    it('accepts the native seekDone position from SEEK_CLOSEST and leaves interaction mode', 0,
+      async (): Promise<void> => {
+        const source: FakeProgressSource = new FakeProgressSource();
+        const tracker: ProgressTracker = new ProgressTracker(source);
+        tracker.beginInteracting();
+        tracker.updateInteracting(42);
+        tracker.endInteracting(42);
+
+        await tracker.handleSeekDone(40.5);
+
+        expect(tracker.isInteracting).assertFalse();
+        expect(tracker.displayTime).assertEqual(40.5);
+        expect(source.playCount).assertEqual(1);
+      });
+
     it('never resumes after the tracker is stopped while pause is pending', 0, async (): Promise<void> => {
       const source: FakeProgressSource = new FakeProgressSource();
       const tracker: ProgressTracker = new ProgressTracker(source);
@@ -282,7 +338,7 @@ export default function task3PlayerTest(): void {
       expect(adapter.url).assertEqual('https://server/video.mp4');
       expect(adapter.surfaceId).assertEqual('surface-1');
       expect(adapter.calls.join(',')).assertEqual('prepare,play');
-      expect(adapter.boundCount).assertEqual(7);
+      expect(adapter.boundCount).assertEqual(8);
       expect(controller.duration).assertEqual(120);
       expect(controller.currentTime).assertEqual(5);
       expect(controller.isPlaying).assertTrue();
@@ -293,8 +349,90 @@ export default function task3PlayerTest(): void {
 
       await controller.release();
       await controller.release();
-      expect(adapter.calls.slice(4).join(',')).assertEqual('stop,reset,release');
-      expect(adapter.unboundCount).assertEqual(7);
+      expect(adapter.calls.slice(4).join(',')).assertEqual('pause,stop,reset,release');
+      expect(adapter.unboundCount).assertEqual(8);
+    });
+
+    it('converts native timeUpdate milliseconds to observable UI seconds', 0, async (): Promise<void> => {
+      const adapter: FakePlayerAdapter = new FakePlayerAdapter();
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      let observedSeconds: number = -1;
+      controller.onTimeUpdate = (seconds: number): void => {
+        observedSeconds = seconds;
+      };
+      await controller.setup('https://server/video.mp4', 'surface-1');
+
+      adapter.emitTimeUpdate(6250);
+
+      expect(controller.currentTime).assertEqual(6.25);
+      expect(observedSeconds).assertEqual(6.25);
+      await controller.release();
+    });
+
+    it('uses durationUpdate when the native duration property is still zero', 0, async (): Promise<void> => {
+      const adapter: FakePlayerAdapter = new FakePlayerAdapter();
+      adapter.duration = 0;
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      await controller.setup('https://server/video.mp4', 'surface-1');
+
+      adapter.emitDurationUpdate(90000);
+
+      expect(controller.duration).assertEqual(90);
+      await controller.release();
+    });
+
+    it('does not seek while duration is not ready', 0, async (): Promise<void> => {
+      const adapter: FakePlayerAdapter = new FakePlayerAdapter();
+      adapter.duration = 0;
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      await controller.setup('https://server/video.mp4', 'surface-1');
+
+      controller.seek(10);
+
+      expect(adapter.calls.join(',')).assertEqual('prepare,play');
+      await controller.release();
+    });
+
+    it('publishes native state after play and pause promises even when stateChange is delayed', 0,
+      async (): Promise<void> => {
+        const adapter: SilentPlaybackStateAdapter = new SilentPlaybackStateAdapter();
+        const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+        let observedState: PlayerState = 'idle';
+        controller.onStateChange = (state: PlayerState): void => {
+          observedState = state;
+        };
+
+        await controller.setup('https://server/video.mp4', 'surface-1');
+        expect(observedState).assertEqual('playing');
+
+        await controller.pause();
+        expect(observedState).assertEqual('paused');
+        await controller.release();
+      });
+
+    it('still stops and releases the native player when pause never settles', 0, async (): Promise<void> => {
+      const adapter: HangingPausePlayerAdapter = new HangingPausePlayerAdapter();
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      await controller.setup('https://server/video.mp4', 'surface-1');
+      expect(adapter.state).assertEqual('playing');
+
+      await controller.release();
+
+      expect(adapter.calls.join(',')).assertEqual('prepare,play,pause,stop,reset,release');
+      expect(controller.state).assertEqual('released');
+    });
+
+    it('withTimeout keeps the settled value of a task that finishes in time', 0, async (): Promise<void> => {
+      const result: string | null = await withTimeout(Promise.resolve('ok'), 1000, 'fast task');
+      expect(result).assertEqual('ok');
+    });
+
+    it('withTimeout resolves null instead of hanging forever on a stuck task', 0, async (): Promise<void> => {
+      const hanging: Promise<string> = new Promise<string>((_resolve: (value: string) => void): void => {});
+      const startedAt: number = Date.now();
+      const result: string | null = await withTimeout(hanging, 30, 'stuck task');
+      expect(result === null).assertTrue();
+      expect(Date.now() - startedAt >= 25).assertTrue();
     });
 
     it('waits for the async initialized event before setting surfaceId', 0, async (): Promise<void> => {

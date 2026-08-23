@@ -2,12 +2,32 @@ import { media } from '@kit.MediaKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ProgressSource } from './ProgressTracker';
 
-// 诊断日志（临时）：P0 播放挂起排查用，定位后移除。
+// 验证日志：任务书要求对 native 播放状态、时间单位（nativeMs → uiSeconds）、
+// 退出清理链路给出可核对依据；真机可用 hilog 过滤 LiveOSPlayer 直接验证。
 const DIAG_DOMAIN: number = 0x0503;
 const DIAG_TAG: string = 'LiveOSPlayer';
 
 function diag(message: string): void {
   hilog.info(DIAG_DOMAIN, DIAG_TAG, '%{public}s', message);
+}
+
+// 真机存在 pause/release Promise 悬挂的情况（TASK-4-fix-2 退出后音频继续的根因之一）：
+// 关闭链路每一步都必须有上限时间，超时记录日志后继续走完，保证 stop/release 一定执行。
+export function withTimeout<T>(task: Promise<T>, timeoutMs: number, label: string): Promise<T | null> {
+  return new Promise<T | null>((resolve: (value: T | null) => void): void => {
+    const timer: number = setTimeout((): void => {
+      diag(`${label} timed out after ${timeoutMs}ms`);
+      resolve(null);
+    }, timeoutMs);
+    task.then((value: T): void => {
+      clearTimeout(timer);
+      resolve(value);
+    }).catch((error: Object): void => {
+      clearTimeout(timer);
+      diag(`${label} failed: ${error}`);
+      resolve(null);
+    });
+  });
 }
 
 export type PlayerState = 'idle' | 'initialized' | 'prepared' | 'playing' | 'paused' | 'completed' |
@@ -78,6 +98,8 @@ export interface PlayerAdapter {
   offSeekDone(handler: PlayerNumberHandler): void;
   onDurationUpdate(handler: PlayerNumberHandler): void;
   offDurationUpdate(handler: PlayerNumberHandler): void;
+  onTimeUpdate(handler: PlayerNumberHandler): void;
+  offTimeUpdate(handler: PlayerNumberHandler): void;
   onSpeedDone(handler: PlayerNumberHandler): void;
   offSpeedDone(handler: PlayerNumberHandler): void;
   onVolumeChange(handler: PlayerNumberHandler): void;
@@ -94,6 +116,7 @@ class HarmonyPlayerAdapter implements PlayerAdapter {
   private nativeErrorHandler: ((error: BusinessError) => void) | null = null;
   private nativeSeekHandler: ((value: number) => void) | null = null;
   private nativeDurationHandler: ((value: number) => void) | null = null;
+  private nativeTimeHandler: ((value: number) => void) | null = null;
   private nativeSpeedHandler: ((value: number) => void) | null = null;
   private nativeVolumeHandler: ((value: number) => void) | null = null;
   private nativeBufferingHandler: ((infoType: media.BufferingInfoType, value: number) => void) | null = null;
@@ -208,6 +231,18 @@ class HarmonyPlayerAdapter implements PlayerAdapter {
     }
   }
 
+  onTimeUpdate(handler: PlayerNumberHandler): void {
+    this.nativeTimeHandler = (value: number): void => handler(value);
+    this.player.on('timeUpdate', this.nativeTimeHandler);
+  }
+
+  offTimeUpdate(_handler: PlayerNumberHandler): void {
+    if (this.nativeTimeHandler !== null) {
+      this.player.off('timeUpdate', this.nativeTimeHandler);
+      this.nativeTimeHandler = null;
+    }
+  }
+
   onSpeedDone(handler: PlayerNumberHandler): void {
     this.nativeSpeedHandler = (value: number): void => handler(playbackRateFromNativeSpeed(value));
     this.player.on('speedDone', this.nativeSpeedHandler);
@@ -259,12 +294,16 @@ export class PlayerController implements ProgressSource {
   onError: PlayerErrorHandler = (_code: number, _message: string): void => {};
   onSeekDone: PlayerNumberHandler = (_seconds: number): void => {};
   onDurationReady: PlayerNumberHandler = (_seconds: number): void => {};
+  onTimeUpdate: PlayerNumberHandler = (_seconds: number): void => {};
   onSpeedChange: PlayerNumberHandler = (_rate: number): void => {};
   onBufferingUpdate: PlayerNumberHandler = (_percent: number): void => {};
   private readonly factory: PlayerAdapterFactory;
   private player: PlayerAdapter | null = null;
   private cachedState: PlayerState = 'idle';
   private cachedDurationMs: number = 0;
+  private cachedCurrentTimeMs: number = 0;
+  private hasCurrentTimeUpdate: boolean = false;
+  private lastLoggedSecond: number = -1;
   private releaseTask: Promise<void> | null = null;
   private lifecycleToken: number = 0;
   private initializedWaitResolve: (() => void) | null = null;
@@ -275,12 +314,14 @@ export class PlayerController implements ProgressSource {
   }
 
   get duration(): number {
-    const value: number = this.player?.duration ?? this.cachedDurationMs;
+    const nativeValue: number = this.player?.duration ?? 0;
+    const value: number = this.cachedDurationMs > 0 ? this.cachedDurationMs : nativeValue;
     return Number.isFinite(value) && value > 0 ? value / 1000 : 0;
   }
 
   get currentTime(): number {
-    const value: number = this.player?.currentTime ?? 0;
+    const nativeValue: number = this.player?.currentTime ?? 0;
+    const value: number = this.hasCurrentTimeUpdate ? this.cachedCurrentTimeMs : nativeValue;
     return Number.isFinite(value) && value > 0 ? value / 1000 : 0;
   }
 
@@ -295,6 +336,10 @@ export class PlayerController implements ProgressSource {
   async setup(url: string, surfaceId: string): Promise<void> {
     const token: number = this.lifecycleToken + 1;
     this.lifecycleToken = token;
+    this.cachedDurationMs = 0;
+    this.cachedCurrentTimeMs = 0;
+    this.hasCurrentTimeUpdate = false;
+    this.lastLoggedSecond = -1;
     diag(`setup url=${url.substring(0, 140)} surface=${surfaceId}`);
     if (url.length === 0 || surfaceId.length === 0) {
       this.reportError(-1, 'Missing playback URL or surface');
@@ -326,6 +371,7 @@ export class PlayerController implements ProgressSource {
       this.publishDuration(player.duration);
       await player.play();
       diag(`play done, state=${player.state}`);
+      this.publishStateSnapshot(player, 'setup play promise');
     } catch (error) {
       diag(`setup failed: ${error}`);
       if (token === this.lifecycleToken) {
@@ -345,6 +391,7 @@ export class PlayerController implements ProgressSource {
     try {
       await player.play();
       diag(`play completed state=${player.state}`);
+      this.publishStateSnapshot(player, 'play promise');
     } catch (error) {
       this.reportOperationError(error);
     }
@@ -361,6 +408,7 @@ export class PlayerController implements ProgressSource {
     try {
       await player.pause();
       diag(`pause completed state=${player.state}`);
+      this.publishStateSnapshot(player, 'pause promise');
     } catch (error) {
       this.reportOperationError(error);
     }
@@ -373,8 +421,10 @@ export class PlayerController implements ProgressSource {
       return;
     }
     const duration: number = this.duration;
-    const target: number = Math.min(Math.max(Number.isFinite(seconds) ? seconds : 0, 0),
-      duration > 0 ? duration : Number.MAX_VALUE);
+    if (duration <= 0) {
+      return;
+    }
+    const target: number = Math.min(Math.max(Number.isFinite(seconds) ? seconds : 0, 0), duration);
     try {
       player.seek(Math.round(target * 1000));
     } catch (error) {
@@ -424,10 +474,20 @@ export class PlayerController implements ProgressSource {
   }
 
   private async performRelease(player: PlayerAdapter): Promise<void> {
-    try { await player.stop(); } catch (_) {}
-    try { await player.reset(); } catch (_) {}
-    this.unbindEvents(player);
-    try { await player.release(); } catch (_) {}
+    if (player.state === 'playing') {
+      diag('release pause begin');
+      await withTimeout(player.pause(), 1500, 'release pause');
+      diag(`release pause settled state=${player.state}`);
+    }
+    try {
+      this.unbindEvents(player);
+    } catch (error) {
+      diag(`release unbind failed: ${error}`);
+    }
+    await withTimeout(player.stop(), 3000, 'release stop');
+    await withTimeout(player.reset(), 3000, 'release reset');
+    await withTimeout(player.release(), 3000, 'release native');
+    diag(`release chain done finalState=${player.state}`);
     if (this.player === player) {
       this.player = null;
     }
@@ -439,6 +499,7 @@ export class PlayerController implements ProgressSource {
     player.onError(this.handleError);
     player.onSeekDone(this.handleSeekDone);
     player.onDurationUpdate(this.handleDurationUpdate);
+    player.onTimeUpdate(this.handleTimeUpdate);
     player.onSpeedDone(this.handleSpeedDone);
     player.onVolumeChange(this.handleVolumeChange);
     player.onBufferingUpdate(this.handleBufferingUpdate);
@@ -449,6 +510,7 @@ export class PlayerController implements ProgressSource {
     player.offError(this.handleError);
     player.offSeekDone(this.handleSeekDone);
     player.offDurationUpdate(this.handleDurationUpdate);
+    player.offTimeUpdate(this.handleTimeUpdate);
     player.offSpeedDone(this.handleSpeedDone);
     player.offVolumeChange(this.handleVolumeChange);
     player.offBufferingUpdate(this.handleBufferingUpdate);
@@ -478,11 +540,26 @@ export class PlayerController implements ProgressSource {
   };
 
   private handleSeekDone: PlayerNumberHandler = (milliseconds: number): void => {
-    this.onSeekDone(milliseconds / 1000);
+    this.cachedCurrentTimeMs = this.validNativeMilliseconds(milliseconds);
+    this.hasCurrentTimeUpdate = true;
+    this.onSeekDone(this.cachedCurrentTimeMs / 1000);
   };
 
   private handleDurationUpdate: PlayerNumberHandler = (milliseconds: number): void => {
     this.publishDuration(milliseconds);
+  };
+
+  private handleTimeUpdate: PlayerNumberHandler = (milliseconds: number): void => {
+    const nativeMs: number = this.validNativeMilliseconds(milliseconds);
+    this.cachedCurrentTimeMs = nativeMs;
+    this.hasCurrentTimeUpdate = true;
+    const uiSeconds: number = nativeMs / 1000;
+    const wholeSecond: number = Math.floor(uiSeconds);
+    if (wholeSecond !== this.lastLoggedSecond) {
+      this.lastLoggedSecond = wholeSecond;
+      diag(`time update nativeMs=${nativeMs} uiSeconds=${uiSeconds.toFixed(3)} durationSeconds=${this.duration.toFixed(3)}`);
+    }
+    this.onTimeUpdate(uiSeconds);
   };
 
   private handleSpeedDone: PlayerNumberHandler = (rate: number): void => {
@@ -496,12 +573,27 @@ export class PlayerController implements ProgressSource {
     }
   };
 
+  private publishStateSnapshot(player: PlayerAdapter, source: string): void {
+    const state: PlayerState = player.state;
+    diag(`state snapshot source=${source} state=${state}`);
+    if (state !== this.cachedState) {
+      this.cachedState = state;
+      this.onStateChange(state);
+    }
+  }
+
   private publishDuration(milliseconds: number): void {
     if (!Number.isFinite(milliseconds) || milliseconds <= 0) {
       return;
     }
     this.cachedDurationMs = milliseconds;
-    this.onDurationReady(milliseconds / 1000);
+    const uiSeconds: number = milliseconds / 1000;
+    diag(`duration update nativeMs=${milliseconds} uiSeconds=${uiSeconds.toFixed(3)}`);
+    this.onDurationReady(uiSeconds);
+  }
+
+  private validNativeMilliseconds(milliseconds: number): number {
+    return Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds : 0;
   }
 
   private reportOperationError(error: Object): void {
