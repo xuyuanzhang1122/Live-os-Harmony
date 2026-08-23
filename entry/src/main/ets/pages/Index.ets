@@ -3,7 +3,7 @@ import { AppConfig } from '../config/AppConfig';
 import { VideoFileInfo } from '../model/VideoLibrary';
 import { VideoLibraryPage, VideoListRouteParams } from './VideoLibraryPage';
 import { VideoListPage } from './VideoListPage';
-import { PlayerPage } from './PlayerPage';
+import { PlayerPage, PlayerShutdownHandler } from './PlayerPage';
 import { AboutPage } from './AboutPage';
 import { ApiKeyPage } from './ApiKeyPage';
 import { NetworkConfigPage } from './NetworkConfigPage';
@@ -19,6 +19,7 @@ struct Index {
   @Local private videoListVisible: boolean = false;
   @Local private activePlayerFile: VideoFileInfo | null = null;
   @Local private settingsRefreshToken: number = 0;
+  private playerShutdownHandler: PlayerShutdownHandler | null = null;
 
   private readonly videoLibraryStack: NavPathStack = new NavPathStack();
   private readonly roomListStack: NavPathStack = new NavPathStack();
@@ -190,6 +191,20 @@ struct Index {
     .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: -72 })))
   }
 
+  // 播放器以 if/else 覆盖 Tabs 时，Navigation/NavDestination 整棵树被卸载，系统返回
+  // 手势（两侧侧滑/底部返回）找不到可弹出页面会直接退出应用：必须在此消费并走
+  // PlayerPage 的关闭漏斗（暂停→上报历史→释放→恢复窗口），回到播放前列表页。
+  onBackPress(): boolean {
+    if (this.activePlayerFile === null) {
+      return false;
+    }
+    const shutdown: PlayerShutdownHandler | null = this.playerShutdownHandler;
+    if (shutdown !== null) {
+      shutdown('system back').catch((): void => {});
+    }
+    return true;
+  }
+
   build() {
     Stack({ alignContent: Alignment.Top }) {
       if (this.activePlayerFile !== null) {
@@ -197,6 +212,10 @@ struct Index {
           file: this.activePlayerFile,
           onClose: (): void => {
             this.activePlayerFile = null;
+            this.playerShutdownHandler = null;
+          },
+          onShutdownReady: (handler: PlayerShutdownHandler | null): void => {
+            this.playerShutdownHandler = handler;
           }
         })
           .width('100%')
