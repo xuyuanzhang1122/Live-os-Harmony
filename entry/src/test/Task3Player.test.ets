@@ -18,6 +18,7 @@ import {
   PlayerOperationError,
   PlayerState,
   PlayerStateHandler,
+  PlayerVideoSizeHandler,
   withTimeout
 } from '../main/ets/player/PlayerController';
 
@@ -64,6 +65,7 @@ class FakePlayerAdapter implements PlayerAdapter {
   speedDoneHandler: PlayerNumberHandler = (_rate: number): void => {};
   timeUpdateHandler: PlayerNumberHandler = (_milliseconds: number): void => {};
   durationUpdateHandler: PlayerNumberHandler = (_milliseconds: number): void => {};
+  videoSizeChangeHandler: PlayerVideoSizeHandler = (_width: number, _height: number): void => {};
   private stateHandler: PlayerStateHandler = (_state: PlayerState): void => {};
 
   get url(): string {
@@ -148,6 +150,14 @@ class FakePlayerAdapter implements PlayerAdapter {
     this.boundCount += 1;
   }
   offDurationUpdate(_handler: PlayerNumberHandler): void { this.unboundCount += 1; }
+  onVideoSizeChange(handler: PlayerVideoSizeHandler): void {
+    this.videoSizeChangeHandler = handler;
+    this.boundCount += 1;
+  }
+  offVideoSizeChange(_handler: PlayerVideoSizeHandler): void {
+    this.videoSizeChangeHandler = (_width: number, _height: number): void => {};
+    this.unboundCount += 1;
+  }
   onTimeUpdate(handler: PlayerNumberHandler): void {
     this.timeUpdateHandler = handler;
     this.boundCount += 1;
@@ -176,6 +186,10 @@ class FakePlayerAdapter implements PlayerAdapter {
 
   emitDurationUpdate(milliseconds: number): void {
     this.durationUpdateHandler(milliseconds);
+  }
+
+  emitVideoSizeChange(width: number, height: number): void {
+    this.videoSizeChangeHandler(width, height);
   }
 }
 
@@ -338,7 +352,7 @@ export default function task3PlayerTest(): void {
       expect(adapter.url).assertEqual('https://server/video.mp4');
       expect(adapter.surfaceId).assertEqual('surface-1');
       expect(adapter.calls.join(',')).assertEqual('prepare,play');
-      expect(adapter.boundCount).assertEqual(8);
+      expect(adapter.boundCount).assertEqual(9);
       expect(controller.duration).assertEqual(120);
       expect(controller.currentTime).assertEqual(5);
       expect(controller.isPlaying).assertTrue();
@@ -350,7 +364,7 @@ export default function task3PlayerTest(): void {
       await controller.release();
       await controller.release();
       expect(adapter.calls.slice(4).join(',')).assertEqual('pause,stop,reset,release');
-      expect(adapter.unboundCount).assertEqual(8);
+      expect(adapter.unboundCount).assertEqual(9);
     });
 
     it('refreshes native currentTime when timeUpdate is silent', 0, async (): Promise<void> => {
@@ -363,6 +377,58 @@ export default function task3PlayerTest(): void {
       expect(controller.currentTime).assertEqual(37.5);
       await controller.release();
     });
+
+    it('keeps advancing from native polling after timeUpdate fired once and went silent', 0,
+      async (): Promise<void> => {
+        const adapter: FakePlayerAdapter = new FakePlayerAdapter();
+        const controller: PlayerController =
+          new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+        await controller.setup('https://server/video.mp4', 'surface-1');
+
+        adapter.emitTimeUpdate(5000);
+        expect(controller.currentTime).assertEqual(5);
+        adapter.currentTime = 37500;
+        expect(controller.refreshCurrentTime()).assertEqual(37.5);
+        expect(controller.currentTime).assertEqual(37.5);
+        await controller.release();
+      });
+
+    it('never lets a stale native currentTime regress the event-driven cache', 0,
+      async (): Promise<void> => {
+        const adapter: FakePlayerAdapter = new FakePlayerAdapter();
+        const controller: PlayerController =
+          new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+        await controller.setup('https://server/video.mp4', 'surface-1');
+
+        adapter.emitTimeUpdate(60000);
+        expect(controller.currentTime).assertEqual(60);
+        adapter.currentTime = 5000;
+        expect(controller.refreshCurrentTime()).assertEqual(60);
+        expect(controller.currentTime).assertEqual(60);
+        await controller.release();
+      });
+
+    it('forwards native videoSizeChange so the page can keep the surface aspect-correct', 0,
+      async (): Promise<void> => {
+        const adapter: FakePlayerAdapter = new FakePlayerAdapter();
+        const controller: PlayerController =
+          new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+        let reportedWidth: number = 0;
+        let reportedHeight: number = 0;
+        controller.onVideoSizeChange = (width: number, height: number): void => {
+          reportedWidth = width;
+          reportedHeight = height;
+        };
+        await controller.setup('https://server/video.mp4', 'surface-1');
+
+        adapter.emitVideoSizeChange(1080, 1920);
+        expect(reportedWidth).assertEqual(1080);
+        expect(reportedHeight).assertEqual(1920);
+
+        await controller.release();
+        adapter.emitVideoSizeChange(720, 1280);
+        expect(reportedHeight).assertEqual(1920);
+      });
     it('converts native timeUpdate milliseconds to observable UI seconds', 0, async (): Promise<void> => {
       const adapter: FakePlayerAdapter = new FakePlayerAdapter();
       const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);

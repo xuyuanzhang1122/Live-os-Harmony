@@ -35,6 +35,7 @@ export type PlayerState = 'idle' | 'initialized' | 'prepared' | 'playing' | 'pau
 export type PlayerStateHandler = (state: PlayerState) => void;
 export type PlayerErrorHandler = (code: number, message: string) => void;
 export type PlayerNumberHandler = (value: number) => void;
+export type PlayerVideoSizeHandler = (width: number, height: number) => void;
 export type BufferingUpdateHandler = (infoType: number, value: number) => void;
 
 export class PlayerOperationError extends Error {
@@ -98,6 +99,8 @@ export interface PlayerAdapter {
   offSeekDone(handler: PlayerNumberHandler): void;
   onDurationUpdate(handler: PlayerNumberHandler): void;
   offDurationUpdate(handler: PlayerNumberHandler): void;
+  onVideoSizeChange(handler: PlayerVideoSizeHandler): void;
+  offVideoSizeChange(handler: PlayerVideoSizeHandler): void;
   onTimeUpdate(handler: PlayerNumberHandler): void;
   offTimeUpdate(handler: PlayerNumberHandler): void;
   onSpeedDone(handler: PlayerNumberHandler): void;
@@ -116,6 +119,7 @@ class HarmonyPlayerAdapter implements PlayerAdapter {
   private nativeErrorHandler: ((error: BusinessError) => void) | null = null;
   private nativeSeekHandler: ((value: number) => void) | null = null;
   private nativeDurationHandler: ((value: number) => void) | null = null;
+  private nativeVideoSizeHandler: ((width: number, height: number) => void) | null = null;
   private nativeTimeHandler: ((value: number) => void) | null = null;
   private nativeSpeedHandler: ((value: number) => void) | null = null;
   private nativeVolumeHandler: ((value: number) => void) | null = null;
@@ -136,6 +140,9 @@ class HarmonyPlayerAdapter implements PlayerAdapter {
   async prepare(): Promise<void> {
     try {
       await this.player.prepare();
+      // SDK 定义：VIDEO_SCALE_TYPE_FIT（默认值）不保持宽高比，拉伸铺满 surface；
+      // 等比留黑边的 SCALED_ASPECT 需 API 20。API 12 纪律下由页面按 videoSizeChange
+      // 上报的宽高比布局 XComponent，surface 比例与视频一致时 FIT 拉伸无可感知形变。
       this.player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
     } catch (error) {
       throw toPlayerOperationError(error);
@@ -231,6 +238,18 @@ class HarmonyPlayerAdapter implements PlayerAdapter {
     }
   }
 
+  onVideoSizeChange(handler: PlayerVideoSizeHandler): void {
+    this.nativeVideoSizeHandler = (width: number, height: number): void => handler(width, height);
+    this.player.on('videoSizeChange', this.nativeVideoSizeHandler);
+  }
+
+  offVideoSizeChange(_handler: PlayerVideoSizeHandler): void {
+    if (this.nativeVideoSizeHandler !== null) {
+      this.player.off('videoSizeChange', this.nativeVideoSizeHandler);
+      this.nativeVideoSizeHandler = null;
+    }
+  }
+
   onTimeUpdate(handler: PlayerNumberHandler): void {
     this.nativeTimeHandler = (value: number): void => handler(value);
     this.player.on('timeUpdate', this.nativeTimeHandler);
@@ -294,6 +313,7 @@ export class PlayerController implements ProgressSource {
   onError: PlayerErrorHandler = (_code: number, _message: string): void => {};
   onSeekDone: PlayerNumberHandler = (_seconds: number): void => {};
   onDurationReady: PlayerNumberHandler = (_seconds: number): void => {};
+  onVideoSizeChange: PlayerVideoSizeHandler = (_width: number, _height: number): void => {};
   onTimeUpdate: PlayerNumberHandler = (_seconds: number): void => {};
   onSpeedChange: PlayerNumberHandler = (_rate: number): void => {};
   onBufferingUpdate: PlayerNumberHandler = (_percent: number): void => {};
@@ -332,7 +352,10 @@ export class PlayerController implements ProgressSource {
   refreshCurrentTime(): number {
     const nativeValue: number = this.player?.currentTime ?? 0;
     const validNative: number = this.validNativeMilliseconds(nativeValue);
-    if (validNative > 0 && !this.hasCurrentTimeUpdate) {
+    // 真机 timeUpdate 事件可能只上报一次后静默：轮询必须持续接受前进的 native 属性值，
+    // 否则缓存停在最后一次事件值，进度条冻结。仅接受 >= 缓存的单调值：回退只可能来自
+    // seek（由 seekDone/timeUpdate 事件更新缓存），过期属性值不允许覆盖事件时间。
+    if (validNative > 0 && validNative >= this.cachedCurrentTimeMs) {
       this.cachedCurrentTimeMs = validNative;
       this.hasCurrentTimeUpdate = true;
     }
@@ -519,6 +542,7 @@ export class PlayerController implements ProgressSource {
     player.onError(this.handleError);
     player.onSeekDone(this.handleSeekDone);
     player.onDurationUpdate(this.handleDurationUpdate);
+    player.onVideoSizeChange(this.handleVideoSizeChange);
     player.onTimeUpdate(this.handleTimeUpdate);
     player.onSpeedDone(this.handleSpeedDone);
     player.onVolumeChange(this.handleVolumeChange);
@@ -530,6 +554,7 @@ export class PlayerController implements ProgressSource {
     player.offError(this.handleError);
     player.offSeekDone(this.handleSeekDone);
     player.offDurationUpdate(this.handleDurationUpdate);
+    player.offVideoSizeChange(this.handleVideoSizeChange);
     player.offTimeUpdate(this.handleTimeUpdate);
     player.offSpeedDone(this.handleSpeedDone);
     player.offVolumeChange(this.handleVolumeChange);
@@ -571,6 +596,12 @@ export class PlayerController implements ProgressSource {
 
   private handleDurationUpdate: PlayerNumberHandler = (milliseconds: number): void => {
     this.publishDuration(milliseconds);
+  };
+
+  private handleVideoSizeChange: PlayerVideoSizeHandler = (width: number, height: number): void => {
+    // width/height 带单位 px（HLS 切换分辨率时也会上报），页面只用其比例。
+    diag(`video size ${width}x${height}`);
+    this.onVideoSizeChange(width, height);
   };
 
   private handleTimeUpdate: PlayerNumberHandler = (milliseconds: number): void => {

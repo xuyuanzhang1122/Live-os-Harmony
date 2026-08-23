@@ -80,6 +80,8 @@ export struct PlayerPage {
   @Local private toastText: string = '';
   @Local private thumbnailURL: string = '';
   @Local private timelineWidth: number = 0;
+  @Local private videoWidth: number = 0;
+  @Local private videoHeight: number = 0;
   @Local private hudMode: HudMode = 'none';
   @Local private hudSeekTarget: number = 0;
   @Local private hudSeekDelta: number = 0;
@@ -112,8 +114,8 @@ export struct PlayerPage {
   private hudSeekBase: number = 0;
   private hudVolumeBase: number = 1;
   private hudBrightnessBase: number = 1;
-  private hudAreaWidth: number = 0;
-  private hudAreaHeight: number = 0;
+  @Local private hudAreaWidth: number = 0;
+  @Local private hudAreaHeight: number = 0;
   private playerWindow: window.Window | null = null;
   private brightnessChanged: boolean = false;
   private historyResumeTried: boolean = false;
@@ -187,6 +189,15 @@ export struct PlayerPage {
         this.currentTime = this.clampedUiTime(this.currentTime);
         log(`page duration uiSeconds=${this.duration.toFixed(3)}`);
         this.tryResumeFromHistory();
+      });
+    };
+    this.controller.onVideoSizeChange = (width: number, height: number): void => {
+      this.runUiTask((): void => {
+        if (!this.isLifecycleActive(token)) {
+          return;
+        }
+        this.videoWidth = width;
+        this.videoHeight = height;
       });
     };
     this.controller.onTimeUpdate = (seconds: number): void => {
@@ -419,6 +430,7 @@ export struct PlayerPage {
     this.controller.onError = (_code: number, _message: string): void => {};
     this.controller.onTimeUpdate = (_seconds: number): void => {};
     this.controller.onDurationReady = (_seconds: number): void => {};
+    this.controller.onVideoSizeChange = (_width: number, _height: number): void => {};
     this.controller.onSeekDone = (_seconds: number): void => {};
     this.controller.onSpeedChange = (_rate: number): void => {};
     this.controller.onBufferingUpdate = (_percent: number): void => {};
@@ -996,15 +1008,58 @@ export struct PlayerPage {
     }
   }
 
+  // API 12 无 VIDEO_SCALE_TYPE_SCALED_ASPECT（API 20+），native FIT 是不保比例的拉伸：
+  // 由页面按 videoSizeChange 上报的宽高比把 XComponent 布局成与视频等比的矩形（等比
+  // contain 居中，多余部分露出黑底），surface 比例与视频一致后 native 不再产生形变。
+  // 例外：竖屏视频在竖屏屏幕上两者比例本就接近（9:16 vs 9:19.5 一类），直接铺满即
+  // 正常观感；仅限比例差 ≤25%，差异更大的内容仍走等比 contain 防止明显变形。
+  private portraitFillApplies(videoAspect: number, areaAspect: number): boolean {
+    if (videoAspect >= 1 || areaAspect >= 1) {
+      return false;
+    }
+    const ratio: number = videoAspect / areaAspect;
+    return ratio >= 0.8 && ratio <= 1.25;
+  }
+
+  private videoSurfaceWidth(): string {
+    if (this.videoWidth <= 0 || this.videoHeight <= 0 || this.hudAreaWidth <= 0 ||
+      this.hudAreaHeight <= 0) {
+      return '100%';
+    }
+    const videoAspect: number = this.videoWidth / this.videoHeight;
+    const areaAspect: number = this.hudAreaWidth / this.hudAreaHeight;
+    if (this.portraitFillApplies(videoAspect, areaAspect)) {
+      return '100%';
+    }
+    return videoAspect >= areaAspect ? '100%' : `${videoAspect / areaAspect * 100}%`;
+  }
+
+  private videoSurfaceHeight(): string {
+    if (this.videoWidth <= 0 || this.videoHeight <= 0 || this.hudAreaWidth <= 0 ||
+      this.hudAreaHeight <= 0) {
+      return '100%';
+    }
+    const videoAspect: number = this.videoWidth / this.videoHeight;
+    const areaAspect: number = this.hudAreaWidth / this.hudAreaHeight;
+    if (this.portraitFillApplies(videoAspect, areaAspect)) {
+      return '100%';
+    }
+    return videoAspect >= areaAspect ? `${areaAspect / videoAspect * 100}%` : '100%';
+  }
+
   @Builder
   private videoLayer() {
-    XComponent({
-      id: 'bililive-player-surface',
-      type: XComponentType.SURFACE,
-      controller: this.surfaceController
-    })
-      .width('100%').height('100%')
-      .onLoad((): void => this.setupPlayer(this.surfaceController.getXComponentSurfaceId()))
+    Column() {
+      XComponent({
+        id: 'bililive-player-surface',
+        type: XComponentType.SURFACE,
+        controller: this.surfaceController
+      })
+        .width(this.videoSurfaceWidth()).height(this.videoSurfaceHeight())
+        .onLoad((): void => this.setupPlayer(this.surfaceController.getXComponentSurfaceId()))
+    }
+    .width('100%').height('100%')
+    .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
   }
 
   @Builder
