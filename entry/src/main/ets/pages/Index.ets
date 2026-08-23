@@ -8,8 +8,10 @@ import { AboutPage } from './AboutPage';
 import { ApiKeyPage } from './ApiKeyPage';
 import { NetworkConfigPage } from './NetworkConfigPage';
 import { RestoreBackupPage } from './RestoreBackupPage';
+import { RoomListPage } from './RoomListPage';
 import { SettingsPage } from './SettingsPage';
 import { StorageManagementPage } from './StorageManagementPage';
+import { HistoryPage } from './HistoryPage';
 
 @Entry
 @ComponentV2
@@ -60,13 +62,6 @@ struct Index {
   }
 
   @Builder
-  private placeholderDestinationBuilder(name: string, _param: Object) {
-    NavDestination() {
-      Text(`${name} - 待实现`).fontSize(18)
-    }.title(name)
-  }
-
-  @Builder
   private settingsDestinationBuilder(name: string, _param: Object) {
     if (name === 'NetworkConfigPage') {
       NetworkConfigPage({
@@ -98,18 +93,6 @@ struct Index {
   }
 
   @Builder
-  private placeholder(text: string) {
-    Column() {
-      Text(text)
-        .fontSize(18)
-        .fontColor($r('sys.color.font_secondary'))
-    }
-    .width('100%')
-    .height('100%')
-    .justifyContent(FlexAlign.Center)
-  }
-
-  @Builder
   private videoLibraryTab() {
     Navigation(this.videoLibraryStack) {
       VideoLibraryPage({
@@ -125,21 +108,29 @@ struct Index {
   @Builder
   private roomListTab() {
     Navigation(this.roomListStack) {
-      this.placeholder('直播间 - 待实现（TASK-5）')
+      RoomListPage({
+        active: this.selectedTab === 1
+      })
     }
     .title('直播间')
     .mode(NavigationMode.Stack)
-    .navDestination(this.placeholderDestinationBuilder)
   }
 
   @Builder
   private historyTab() {
     Navigation(this.historyStack) {
-      this.placeholder('观看历史 - 待实现（TASK-5）')
+      HistoryPage({
+        active: this.selectedTab === 2,
+        onPlayFile: (file: VideoFileInfo): void => {
+          this.activePlayerFile = file;
+        },
+        onOpenSettings: (): void => {
+          this.selectedTab = 3;
+        }
+      })
     }
     .title('观看历史')
     .mode(NavigationMode.Stack)
-    .navDestination(this.placeholderDestinationBuilder)
   }
 
   @Builder
