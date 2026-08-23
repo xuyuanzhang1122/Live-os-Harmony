@@ -336,12 +336,15 @@ export class PlayerController implements ProgressSource {
 
   async play(): Promise<void> {
     const player: PlayerAdapter | null = this.player;
-    if (player === null || (player.state !== 'prepared' && player.state !== 'paused' &&
-      player.state !== 'completed')) {
+    const state: PlayerState = player?.state ?? this.cachedState;
+    diag(`play requested state=${state}`);
+    if (player === null || (state !== 'prepared' && state !== 'paused' && state !== 'completed')) {
+      diag(`play ignored state=${state}`);
       return;
     }
     try {
       await player.play();
+      diag(`play completed state=${player.state}`);
     } catch (error) {
       this.reportOperationError(error);
     }
@@ -349,11 +352,15 @@ export class PlayerController implements ProgressSource {
 
   async pause(): Promise<void> {
     const player: PlayerAdapter | null = this.player;
-    if (player === null || player.state !== 'playing') {
+    const state: PlayerState = player?.state ?? this.cachedState;
+    diag(`pause requested state=${state}`);
+    if (player === null || state !== 'playing') {
+      diag(`pause ignored state=${state}`);
       return;
     }
     try {
       await player.pause();
+      diag(`pause completed state=${player.state}`);
     } catch (error) {
       this.reportOperationError(error);
     }

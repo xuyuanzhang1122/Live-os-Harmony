@@ -134,7 +134,7 @@ export default function task1InfrastructureTest(): void {
       expect(APIClient.buildPlaybackUrl(base, 'key', videoFile('A.MP4', '房间/A.MP4', null, null, null)))
         .assertEqual('http://server:8080/files/%E6%88%BF%E9%97%B4/A.MP4?_key=key');
       expect(APIClient.buildPlaybackUrl(base, '', videoFile('a.flv', '房间/a.flv', null, null, null)))
-        .assertEqual('http://server:8080/api/stream/hls/%E6%88%BF%E9%97%B4/a.flv');
+        .assertEqual('http://server:8080/api/stream/hls/%E6%88%BF%E9%97%B4/a.flv/playlist.m3u8');
       expect(APIClient.appendKeyIfUnsigned('https://x/a?foo=1', 'a b'))
         .assertEqual('https://x/a?foo=1&_key=a%20b');
     });
