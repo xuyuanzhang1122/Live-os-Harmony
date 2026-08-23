@@ -3,6 +3,7 @@ import { AppConfig } from '../main/ets/config/AppConfig';
 import task1InfrastructureTest from './Task1Infrastructure.test';
 import task3PlayerTest from './Task3Player.test';
 import task5RoomHistoryTest from './Task5RoomHistory.test';
+import task7BackupTest from './Task7Backup.test';
 
 export default function listTest(): void {
   describe('Task0Skeleton', (): void => {
@@ -17,4 +18,5 @@ export default function listTest(): void {
   task1InfrastructureTest();
   task3PlayerTest();
   task5RoomHistoryTest();
+  task7BackupTest();
 }

@@ -1,6 +1,7 @@
 import { ConfirmDialog } from '@kit.ArkUI';
 import { AppConfig } from '../config/AppConfig';
 import { LiveInfo } from '../model/LiveRoom';
+import { BackupExportSheet } from './components/BackupExportSheet';
 import {
   AddRoomFailure,
   AddRoomsResult,
@@ -17,6 +18,7 @@ export struct RoomListPage {
   @Local private viewModel: RoomListViewModel =
     new RoomListViewModel(AppConfig.getInstance().getClient());
   @Local private showAddSheet: boolean = false;
+  @Local private showBackupSheet: boolean = false;
   @Local private addInput: string = '';
   @Local private isAdding: boolean = false;
   @Local private addErrorText: string = '';
@@ -99,6 +101,10 @@ export struct RoomListPage {
   private openAddSheet(): void {
     this.addErrorText = '';
     this.showAddSheet = true;
+  }
+
+  private openBackupSheet(): void {
+    this.showBackupSheet = true;
   }
 
   private closeAddSheet(): void {
@@ -214,6 +220,18 @@ export struct RoomListPage {
   private pageToolbar() {
     Row({ space: 4 }) {
       Blank()
+      Button() {
+        SymbolGlyph($r('sys.symbol.archivebox'))
+          .fontSize(22)
+          .fontColor([$r('app.color.brand_color')])
+      }
+      .width(44)
+      .height(44)
+      .type(ButtonType.Normal)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText('导出备份')
+      .onClick((): void => this.openBackupSheet())
+
       Button() {
         SymbolGlyph($r('sys.symbol.arrow_clockwise'))
           .fontSize(22)
@@ -411,6 +429,15 @@ export struct RoomListPage {
     .alignItems(HorizontalAlign.Start)
   }
 
+  @Builder
+  private backupSheet() {
+    BackupExportSheet({
+      onClose: (): void => {
+        this.showBackupSheet = false;
+      }
+    })
+  }
+
   build() {
     Column() {
       this.pageToolbar()
@@ -461,6 +488,13 @@ export struct RoomListPage {
       showClose: false,
       onDisappear: (): void => {
         this.showAddSheet = false;
+      }
+    })
+    .bindSheet(this.showBackupSheet, this.backupSheet, {
+      height: SheetSize.LARGE,
+      showClose: false,
+      onDisappear: (): void => {
+        this.showBackupSheet = false;
       }
     })
   }
