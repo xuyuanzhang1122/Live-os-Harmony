@@ -50,43 +50,70 @@ class FakeProgressSource implements ProgressSource {
 }
 
 class FakePlayerAdapter implements PlayerAdapter {
-  url: string = '';
+  // 忠实模拟真机 AVPlayer：url 赋值后异步进入 initialized（可用 delayInitializedMs 模拟延迟）。
+  private urlValue: string = '';
+  delayInitializedMs: number = 0;
   surfaceId: string = '';
   duration: number = 120000;
   currentTime: number = 5000;
-  state: PlayerState = 'playing';
+  state: PlayerState = 'idle';
   calls: string[] = [];
   boundCount: number = 0;
   unboundCount: number = 0;
   speedDoneHandler: PlayerNumberHandler = (_rate: number): void => {};
+  private stateHandler: PlayerStateHandler = (_state: PlayerState): void => {};
+
+  get url(): string {
+    return this.urlValue;
+  }
+
+  set url(value: string) {
+    this.urlValue = value;
+    const handler: PlayerStateHandler = this.stateHandler;
+    if (this.delayInitializedMs > 0) {
+      setTimeout((): void => {
+        this.state = 'initialized';
+        handler('initialized');
+      }, this.delayInitializedMs);
+    } else {
+      this.state = 'initialized';
+      handler('initialized');
+    }
+  }
+
+  private become(state: PlayerState): void {
+    this.state = state;
+    this.stateHandler(state);
+  }
 
   async prepare(): Promise<void> {
     this.calls.push('prepare');
+    this.become('prepared');
   }
 
   async play(): Promise<void> {
     this.calls.push('play');
-    this.state = 'playing';
+    this.become('playing');
   }
 
   async pause(): Promise<void> {
     this.calls.push('pause');
-    this.state = 'paused';
+    this.become('paused');
   }
 
   async stop(): Promise<void> {
     this.calls.push('stop');
-    this.state = 'stopped';
+    this.become('stopped');
   }
 
   async reset(): Promise<void> {
     this.calls.push('reset');
-    this.state = 'idle';
+    this.become('idle');
   }
 
   async release(): Promise<void> {
     this.calls.push('release');
-    this.state = 'released';
+    this.become('released');
   }
 
   seek(timeMs: number): void {
@@ -101,8 +128,14 @@ class FakePlayerAdapter implements PlayerAdapter {
     this.calls.push(`volume:${volume}`);
   }
 
-  onStateChange(_handler: PlayerStateHandler): void { this.boundCount += 1; }
-  offStateChange(_handler: PlayerStateHandler): void { this.unboundCount += 1; }
+  onStateChange(handler: PlayerStateHandler): void {
+    this.stateHandler = handler;
+    this.boundCount += 1;
+  }
+  offStateChange(_handler: PlayerStateHandler): void {
+    this.stateHandler = (_state: PlayerState): void => {};
+    this.unboundCount += 1;
+  }
   onError(_handler: PlayerErrorHandler): void { this.boundCount += 1; }
   offError(_handler: PlayerErrorHandler): void { this.unboundCount += 1; }
   onSeekDone(_handler: PlayerNumberHandler): void { this.boundCount += 1; }
@@ -262,6 +295,17 @@ export default function task3PlayerTest(): void {
       await controller.release();
       expect(adapter.calls.slice(4).join(',')).assertEqual('stop,reset,release');
       expect(adapter.unboundCount).assertEqual(7);
+    });
+
+    it('waits for the async initialized event before setting surfaceId', 0, async (): Promise<void> => {
+      const adapter: FakePlayerAdapter = new FakePlayerAdapter();
+      adapter.delayInitializedMs = 20;
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      await controller.setup('https://server/video.mp4', 'surface-1');
+      expect(adapter.surfaceId).assertEqual('surface-1');
+      expect(adapter.calls.join(',')).assertEqual('prepare,play');
+      expect(controller.isPlaying).assertTrue();
+      await controller.release();
     });
 
     it('releases a late-created player instead of playing after close', 0, async (): Promise<void> => {

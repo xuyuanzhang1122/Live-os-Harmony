@@ -267,6 +267,8 @@ export class PlayerController implements ProgressSource {
   private cachedDurationMs: number = 0;
   private releaseTask: Promise<void> | null = null;
   private lifecycleToken: number = 0;
+  private initializedWaitResolve: (() => void) | null = null;
+  private initializedWaitReject: ((error: Error) => void) | null = null;
 
   constructor(factory: PlayerAdapterFactory = createHarmonyPlayerAdapter) {
     this.factory = factory;
@@ -310,6 +312,10 @@ export class PlayerController implements ProgressSource {
       this.bindEvents(player);
       player.url = url;
       diag('url set');
+      // url 赋值后进入 initialized 是异步事件：必须等状态就绪再设 surfaceId/prepare，
+      // 否则真机会以 5400102（surfaceId 仅 initialized 态可设）拒绝并导致播放完全失败。
+      await this.waitForInitialized(player, 10000);
+      diag(`initialized ready, state=${player.state}`);
       player.surfaceId = surfaceId;
       diag(`surfaceId set, state=${player.state}`);
       await player.prepare();
@@ -444,6 +450,13 @@ export class PlayerController implements ProgressSource {
   private handleStateChange: PlayerStateHandler = (state: PlayerState): void => {
     diag(`state -> ${state}`);
     this.cachedState = state;
+    if (state === 'initialized') {
+      if (this.initializedWaitResolve !== null) {
+        this.initializedWaitResolve();
+      }
+    } else if (state === 'error' && this.initializedWaitReject !== null) {
+      this.initializedWaitReject(new Error('player entered error state while initializing'));
+    }
     if (state === 'prepared' && this.player !== null) {
       this.publishDuration(this.player.duration);
     }
@@ -489,6 +502,31 @@ export class PlayerController implements ProgressSource {
     const code: number = Number.isFinite(businessError.code) ? businessError.code : -1;
     const message: string = businessError.message?.length > 0 ? businessError.message : `${error}`;
     this.reportError(code, message);
+  }
+
+  private waitForInitialized(player: PlayerAdapter, timeoutMs: number): Promise<void> {
+    if (player.state === 'initialized') {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve: () => void, reject: (error: Error) => void): void => {
+      const timer: number = setTimeout((): void => {
+        this.initializedWaitResolve = null;
+        this.initializedWaitReject = null;
+        reject(new Error(`timeout after ${timeoutMs}ms waiting for initialized state`));
+      }, timeoutMs);
+      this.initializedWaitResolve = (): void => {
+        clearTimeout(timer);
+        this.initializedWaitResolve = null;
+        this.initializedWaitReject = null;
+        resolve();
+      };
+      this.initializedWaitReject = (error: Error): void => {
+        clearTimeout(timer);
+        this.initializedWaitResolve = null;
+        this.initializedWaitReject = null;
+        reject(error);
+      };
+    });
   }
 
   private reportError(code: number, message: string): void {
