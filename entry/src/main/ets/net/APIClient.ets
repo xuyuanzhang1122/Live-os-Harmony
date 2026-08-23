@@ -100,17 +100,24 @@ export class APIClient {
   }
 
   static buildPlaybackUrl(base: string, apiKey: string, file: VideoFileInfo): string {
+    // 鸿蒙 AVPlayer 依据 URI 后缀选择解封装器：HLS 地址必须以 .m3u8 结尾，
+    // 否则以 .flv 等结尾的播放列表地址会被判为 5400106（不支持的封装格式）。
     let relative: string;
-    if (file.hls_url !== null && file.hls_url.length > 0) {
+    if (file.hls_url !== null && file.hls_url.length > 0 &&
+      APIClient.urlPathEndsWith(file.hls_url, '.m3u8')) {
       relative = file.hls_url;
-    } else if (file.file_url !== null && file.file_url.length > 0) {
-      relative = file.file_url;
+    } else if (VideoFileInfo.isNativePlayable(file.name.length > 0 ? file.name : file.rel_path)) {
+      relative = file.file_url !== null && file.file_url.length > 0 ? file.file_url :
+        `/files/${APIClient.encodePathSegments(file.rel_path)}`;
     } else {
-      const encoded: string = APIClient.encodePathSegments(file.rel_path);
-      relative = VideoFileInfo.isNativePlayable(file.name.length > 0 ? file.name : file.rel_path) ?
-        `/files/${encoded}` : `/api/stream/hls/${encoded}`;
+      relative = `/api/stream/hls/${APIClient.encodePathSegments(file.rel_path)}/playlist.m3u8`;
     }
     return APIClient.appendKeyIfUnsigned(APIClient.absoluteURL(base, relative), apiKey);
+  }
+
+  static urlPathEndsWith(url: string, suffix: string): boolean {
+    const path: string = url.split(/[?#]/, 1)[0];
+    return path.length > 0 && path.endsWith(suffix);
   }
 
   async request<T>(method: string, path: string, body?: Object, opts: APIRequestOptions = {}): Promise<T> {
