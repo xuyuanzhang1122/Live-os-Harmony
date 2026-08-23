@@ -1,5 +1,14 @@
 import { media } from '@kit.MediaKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ProgressSource } from './ProgressTracker';
+
+// 诊断日志（临时）：P0 播放挂起排查用，定位后移除。
+const DIAG_DOMAIN: number = 0x0503;
+const DIAG_TAG: string = 'LiveOSPlayer';
+
+function diag(message: string): void {
+  hilog.info(DIAG_DOMAIN, DIAG_TAG, '%{public}s', message);
+}
 
 export type PlayerState = 'idle' | 'initialized' | 'prepared' | 'playing' | 'paused' | 'completed' |
   'stopped' | 'released' | 'error';
@@ -284,12 +293,14 @@ export class PlayerController implements ProgressSource {
   async setup(url: string, surfaceId: string): Promise<void> {
     const token: number = this.lifecycleToken + 1;
     this.lifecycleToken = token;
+    diag(`setup url=${url.substring(0, 140)} surface=${surfaceId}`);
     if (url.length === 0 || surfaceId.length === 0) {
       this.reportError(-1, 'Missing playback URL or surface');
       return;
     }
     try {
       const player: PlayerAdapter = await this.factory();
+      diag('factory done');
       if (token !== this.lifecycleToken) {
         try { await player.release(); } catch (_) {}
         return;
@@ -298,14 +309,19 @@ export class PlayerController implements ProgressSource {
       this.releaseTask = null;
       this.bindEvents(player);
       player.url = url;
+      diag('url set');
       player.surfaceId = surfaceId;
+      diag(`surfaceId set, state=${player.state}`);
       await player.prepare();
+      diag(`prepare done, state=${player.state}, durationMs=${player.duration}`);
       if (token !== this.lifecycleToken) {
         return;
       }
       this.publishDuration(player.duration);
       await player.play();
+      diag(`play done, state=${player.state}`);
     } catch (error) {
+      diag(`setup failed: ${error}`);
       if (token === this.lifecycleToken) {
         this.reportOperationError(error);
       }
@@ -426,6 +442,7 @@ export class PlayerController implements ProgressSource {
   }
 
   private handleStateChange: PlayerStateHandler = (state: PlayerState): void => {
+    diag(`state -> ${state}`);
     this.cachedState = state;
     if (state === 'prepared' && this.player !== null) {
       this.publishDuration(this.player.duration);
@@ -434,6 +451,7 @@ export class PlayerController implements ProgressSource {
   };
 
   private handleError: PlayerErrorHandler = (code: number, message: string): void => {
+    diag(`error code=${code} message=${message}`);
     this.cachedState = 'error';
     this.onStateChange('error');
     this.onError(code, message);
