@@ -7,12 +7,14 @@ import { ApiCache } from '../main/ets/net/ApiCache';
 import {
   AddRoomsResult,
   RoomListViewModel,
+  roomRowKey,
   roomStatusKind
 } from '../main/ets/viewmodel/RoomListViewModel';
 import {
   HistoryViewModel,
   historyHostName,
   historyProgressPercent,
+  historyRowKey,
   historyVideoFile
 } from '../main/ets/viewmodel/HistoryViewModel';
 
@@ -235,29 +237,60 @@ export default function task5RoomHistoryTest(): void {
       expect(viewModel.rooms[0].id).assertEqual('2');
     });
 
-    it('resolves only non-Douyin lines and submits one listen=true array', 0, async (): Promise<void> => {
-      const client: FakeTask5Client = new FakeTask5Client();
-      client.addedLives = [
-        liveInfo('direct', true, false),
-        liveInfo('resolved', true, false),
-        liveInfo('short', true, false)
-      ];
-      const viewModel: RoomListViewModel = new RoomListViewModel(client, new MemoryTask5Cache());
+    it('bypasses resolve only for live.douyin.com and submits one listen=true array', 0,
+      async (): Promise<void> => {
+        const client: FakeTask5Client = new FakeTask5Client();
+        client.addedLives = [
+          liveInfo('direct', true, false),
+          liveInfo('resolved', true, false),
+          liveInfo('resolved', true, false)
+        ];
+        const viewModel: RoomListViewModel = new RoomListViewModel(client, new MemoryTask5Cache());
 
-      const result: AddRoomsResult = await viewModel.addRooms('https://live.douyin.com/direct\n' +
-        '一段分享文案\n坏分享文案\n\nhttps://v.douyin.com/short/');
+        const result: AddRoomsResult = await viewModel.addRooms('https://live.douyin.com/direct\n' +
+          '一段分享文案\n坏分享文案\n\nhttps://v.douyin.com/short/');
 
-      expect(client.resolveInputs.join(',')).assertEqual('一段分享文案,坏分享文案');
-      expect(client.addLivesCallCount).assertEqual(1);
-      expect(client.addRequests.length).assertEqual(3);
-      expect(client.addRequests[0].url).assertEqual('https://live.douyin.com/direct');
-      expect(client.addRequests[1].url).assertEqual('https://live.douyin.com/resolved');
-      expect(client.addRequests[2].url).assertEqual('https://v.douyin.com/short/');
-      expect(client.addRequests[0].listen).assertTrue();
-      expect(result.successCount).assertEqual(3);
-      expect(result.failures.length).assertEqual(1);
-      expect(result.failures[0].lineNumber).assertEqual(3);
-      expect(result.failures[0].message).assertEqual('无法解析');
+        expect(client.resolveInputs.join(','))
+          .assertEqual('一段分享文案,坏分享文案,https://v.douyin.com/short/');
+        expect(client.addLivesCallCount).assertEqual(1);
+        expect(client.addRequests.length).assertEqual(3);
+        expect(client.addRequests[0].url).assertEqual('https://live.douyin.com/direct');
+        expect(client.addRequests[1].url).assertEqual('https://live.douyin.com/resolved');
+        expect(client.addRequests[2].url).assertEqual('https://live.douyin.com/resolved');
+        expect(client.addRequests[0].listen).assertTrue();
+        expect(result.successCount).assertEqual(3);
+        expect(result.failures.length).assertEqual(1);
+        expect(result.failures[0].lineNumber).assertEqual(3);
+        expect(result.failures[0].message).assertEqual('无法解析');
+      });
+
+    it('attributes silently skipped rows for typed and resolved lines alike', 0,
+      async (): Promise<void> => {
+        const client: FakeTask5Client = new FakeTask5Client();
+        client.addedLives = [liveInfo('kept', true, false)];
+        const viewModel: RoomListViewModel = new RoomListViewModel(client, new MemoryTask5Cache());
+
+        const result: AddRoomsResult = await viewModel.addRooms('https://live.douyin.com/kept\n' +
+          'https://live.douyin.com/missing\nhttps://v.douyin.com/dropped/');
+
+        expect(result.successCount).assertEqual(1);
+        expect(result.failures.length).assertEqual(2);
+        expect(result.failures[0].lineNumber).assertEqual(2);
+        expect(result.failures[0].message).assertEqual('添加未生效');
+        expect(result.failures[1].lineNumber).assertEqual(3);
+        expect(result.failures[1].message).assertEqual('添加未生效');
+      });
+
+    it('changes the row key whenever a displayed room flag changes', 0, (): void => {
+      const stopped: LiveInfo = liveInfo('1', false, false);
+      const listening: LiveInfo = liveInfo('1', true, false);
+      const recording: LiveInfo = liveInfo('1', true, true);
+      expect(roomRowKey(stopped) !== roomRowKey(listening)).assertTrue();
+      expect(roomRowKey(listening) !== roomRowKey(recording)).assertTrue();
+      expect(roomRowKey(stopped) === roomRowKey(liveInfo('1', false, false))).assertTrue();
+      const renamed: LiveInfo = liveInfo('1', false, false);
+      renamed.host_name = '改名主播';
+      expect(roomRowKey(stopped) !== roomRowKey(renamed)).assertTrue();
     });
 
     it('reports every submitted line when the one batch request fails', 0, async (): Promise<void> => {
@@ -275,21 +308,6 @@ export default function task5RoomHistoryTest(): void {
       expect(result.failures[1].lineNumber).assertEqual(3);
       expect(result.failures[0].message).assertEqual('服务器拒绝');
     });
-
-    it('identifies standard live URLs silently skipped by the server without blaming short links', 0,
-      async (): Promise<void> => {
-        const client: FakeTask5Client = new FakeTask5Client();
-        client.addedLives = [liveInfo('kept', true, false)];
-        const viewModel: RoomListViewModel = new RoomListViewModel(client, new MemoryTask5Cache());
-
-        const result: AddRoomsResult = await viewModel.addRooms('https://live.douyin.com/kept\n' +
-          'https://live.douyin.com/missing\nhttps://v.douyin.com/server-will-normalize/');
-
-        expect(result.successCount).assertEqual(1);
-        expect(result.failures.length).assertEqual(1);
-        expect(result.failures[0].lineNumber).assertEqual(2);
-        expect(result.failures[0].message).assertEqual('添加未生效');
-      });
   });
 
   describe('Task5 history rules', (): void => {
@@ -299,6 +317,17 @@ export default function task5RoomHistoryTest(): void {
       expect(historyProgressPercent(-10, 100)).assertEqual(0);
       expect(historyProgressPercent(10, 0)).assertEqual(0);
       expect(historyProgressPercent(Number.NaN, 100)).assertEqual(0);
+    });
+
+    it('changes the row key when history progress or time advances', 0, (): void => {
+      const before: WatchHistoryEntry = historyEntry();
+      const progressed: WatchHistoryEntry = historyEntry();
+      progressed.position_seconds = 60;
+      const refreshed: WatchHistoryEntry = historyEntry();
+      refreshed.updated_at = '2026-05-05 12:00:00';
+      expect(historyRowKey(before) !== historyRowKey(progressed)).assertTrue();
+      expect(historyRowKey(before) !== historyRowKey(refreshed)).assertTrue();
+      expect(historyRowKey(before) === historyRowKey(historyEntry())).assertTrue();
     });
 
     it('derives the displayed host and the exact player fallback file', 0, (): void => {

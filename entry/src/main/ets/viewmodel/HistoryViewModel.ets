@@ -20,6 +20,12 @@ export function historyHostName(videoPath: string): string {
   return segments.length > 0 ? segments[0] : '未知主播';
 }
 
+// ArkUI ForEach 键值不变则不重绘：纳入 updated_at/position 后，看完视频回到历史页
+// 重新拉取时进度条与时间才会刷新（与直播间列表同一根因）。
+export function historyRowKey(entry: WatchHistoryEntry): string {
+  return `${entry.video_path}|${entry.updated_at ?? ''}|${entry.position_seconds}|${entry.video_name ?? ''}`;
+}
+
 export function historyVideoFile(entry: WatchHistoryEntry): VideoFileInfo {
   const pathSegments: string[] = entry.video_path.split('/');
   const fallbackName: string = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : '未知视频';

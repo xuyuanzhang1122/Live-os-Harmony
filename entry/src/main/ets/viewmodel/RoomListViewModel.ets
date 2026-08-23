@@ -68,8 +68,8 @@ function withListening(room: LiveInfo, listening: boolean): LiveInfo {
   };
 }
 
-function isDouyinInput(value: string): boolean {
-  return value.toLowerCase().indexOf('douyin.com') >= 0;
+function isLiveDouyinURL(value: string): boolean {
+  return value.toLowerCase().indexOf('live.douyin.com') >= 0;
 }
 
 function normalizeLiveURL(value: string): string {
@@ -84,9 +84,13 @@ function normalizeLiveURL(value: string): string {
   return normalized;
 }
 
-function isStandardLiveURL(value: string): boolean {
-  const normalized: string = normalizeLiveURL(value);
-  return normalized.startsWith('https://live.douyin.com/') || normalized.startsWith('http://live.douyin.com/');
+// ArkUI ForEach 键值不变则不重绘该行：id 必须参与键值，同时纳入所有会影响行展示的
+// 可变字段，启停/轮询回填后按钮与状态灯才会即时刷新（真机 TASK-5-fix 根因）。
+export function roomRowKey(room: LiveInfo): string {
+  return `${room.id}|${room.listening === true ? 1 : 0}|${room.recording === true ? 1 : 0}` +
+    `|${room.recording_preparing === true ? 1 : 0}|${room.initializing === true ? 1 : 0}` +
+    `|${room.status === true ? 1 : 0}|${room.host_name ?? ''}|${room.room_name ?? ''}` +
+    `|${room.platform_cn_name ?? ''}`;
 }
 
 @ObservedV2
@@ -191,7 +195,10 @@ export class RoomListViewModel {
       if (value.length === 0) {
         continue;
       }
-      if (isDouyinInput(value)) {
+      // 对齐 iOS addRoom：仅 live.douyin.com 标准链接直接提交；v.douyin.com 短链、
+      // 分享文案与其他平台链接必须先 resolveUrl 解析（服务端 addLives 对解析失败
+      // 项只记日志静默跳过，客户端预解析才能给出逐行失败原因）。
+      if (isLiveDouyinURL(value)) {
         submitted.push(new SubmittedRoomLine(index + 1, value));
         continue;
       }
@@ -210,6 +217,8 @@ export class RoomListViewModel {
     try {
       const added: LiveInfo[] = await this.client.addLives(requests);
       if (added.length < submitted.length) {
+        // 服务端对单项失败只记日志不报错；提交行已全部是 resolveUrl 后的标准 URL，
+        // 可与返回的 live_url 规范化匹配，定位被静默跳过的行。
         const returnedCounts: Map<string, number> = new Map<string, number>();
         added.forEach((room: LiveInfo): void => {
           if (room.live_url === null) {
@@ -219,9 +228,6 @@ export class RoomListViewModel {
           returnedCounts.set(normalized, (returnedCounts.get(normalized) ?? 0) + 1);
         });
         submitted.forEach((line: SubmittedRoomLine): void => {
-          if (!isStandardLiveURL(line.url)) {
-            return;
-          }
           const normalized: string = normalizeLiveURL(line.url);
           const remaining: number = returnedCounts.get(normalized) ?? 0;
           if (remaining > 0) {

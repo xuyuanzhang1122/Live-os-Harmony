@@ -6,6 +6,7 @@ import {
   HistoryViewModel,
   historyHostName,
   historyProgressPercent,
+  historyRowKey,
   historyVideoFile
 } from '../viewmodel/HistoryViewModel';
 import { CachedThumbnail } from './components/CachedThumbnail';
@@ -226,7 +227,7 @@ export struct HistoryPage {
             ListItem() {
               this.historyCard(entry)
             }
-          }, (entry: WatchHistoryEntry): string => entry.video_path)
+          }, (entry: WatchHistoryEntry): string => historyRowKey(entry))
         }
         .width('100%')
         .height('100%')

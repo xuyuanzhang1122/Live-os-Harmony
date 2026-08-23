@@ -6,6 +6,7 @@ import {
   AddRoomsResult,
   RoomListViewModel,
   RoomStatusKind,
+  roomRowKey,
   roomStatusKind
 } from '../viewmodel/RoomListViewModel';
 
@@ -440,7 +441,7 @@ export struct RoomListPage {
                   this.deleteSwipe(room);
                 }
               })
-            }, (room: LiveInfo): string => room.id)
+            }, (room: LiveInfo): string => roomRowKey(room))
           }
           .width('100%')
           .height('100%')

@@ -52,3 +52,9 @@
 
 - 需在 API 21 真机连接真实服务验证左滑、ConfirmDialog 勾选、bindSheet 多行输入、长按菜单和实际缩略图加载的触控/系统组件表现；编译与纯逻辑回归已通过。
 - 服务端对 `addLives` 单项失败只写日志、不返回逐项错误；短链静默失败无法从当前契约可靠定位到具体输入行。
+
+## TASK-5-fix（真机反馈修复，2026-08-23）
+
+- **启停/轮询后行 UI 不刷新（需重启应用）**：根因是 ArkUI ForEach 键值不变不重绘该行——直播间列表键只用 `room.id`，启停回填与 10s 轮询替换数组后行内容变化但键值未变。修复：`roomRowKey` 把 listening/recording/preparing/initializing/status 与名称类字段全部纳入键值；历史页 `historyRowKey` 同理纳入 `updated_at/position_seconds`（观看后回历史页进度不刷新为同一根因）。
+- **无法添加直播间（"没有可添加的直播间"）**：原实现对含 `douyin.com` 的行直接提交，v.douyin.com 短链/分享文案未经解析被服务端 `addLives` 静默跳过且无法归因。修复对齐 iOS `addRoom`：仅 `live.douyin.com` 标准链接免解析直接提交，其余（短链/文案/其他平台）逐行先 `resolveUrl`；提交行全部为标准 URL 后，静默跳过归因不再区分链接来源，被跳过的行统一提示「第 X 行添加未生效」。
+- 测试：`bypasses resolve only for live.douyin.com` 重写解析门控用例、`attributes silently skipped rows` 覆盖归因、新增直播间/历史行键值变化用例；`Tests run: 68, Failure: 0, Error: 0`。
