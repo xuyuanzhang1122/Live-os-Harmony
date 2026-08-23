@@ -321,12 +321,27 @@ export class PlayerController implements ProgressSource {
 
   get currentTime(): number {
     const nativeValue: number = this.player?.currentTime ?? 0;
-    const value: number = this.hasCurrentTimeUpdate ? this.cachedCurrentTimeMs : nativeValue;
-    return Number.isFinite(value) && value > 0 ? value / 1000 : 0;
+    const validNative: number = this.validNativeMilliseconds(nativeValue);
+    const cachedValue: number = this.validNativeMilliseconds(this.cachedCurrentTimeMs);
+    // API 12 真机可能只通过 timeUpdate 提供可靠时间；不要让 playing 状态下
+    // 返回的 0/-1 覆盖已经收到的有效事件时间。
+    const value: number = cachedValue > 0 ? cachedValue : validNative;
+    return value / 1000;
+  }
+
+  refreshCurrentTime(): number {
+    const nativeValue: number = this.player?.currentTime ?? 0;
+    const validNative: number = this.validNativeMilliseconds(nativeValue);
+    if (validNative > 0 && !this.hasCurrentTimeUpdate) {
+      this.cachedCurrentTimeMs = validNative;
+      this.hasCurrentTimeUpdate = true;
+    }
+    return this.currentTime;
   }
 
   get state(): PlayerState {
-    return this.player?.state ?? this.cachedState;
+    const nativeState: PlayerState | null = this.player?.state ?? null;
+    return nativeState === null || nativeState === 'idle' ? this.cachedState : nativeState;
   }
 
   get isPlaying(): boolean {
@@ -366,6 +381,7 @@ export class PlayerController implements ProgressSource {
       await player.prepare();
       diag(`prepare done, state=${player.state}, durationMs=${player.duration}`);
       if (token !== this.lifecycleToken) {
+        await this.release();
         return;
       }
       this.publishDuration(player.duration);
@@ -376,6 +392,10 @@ export class PlayerController implements ProgressSource {
       diag(`setup failed: ${error}`);
       if (token === this.lifecycleToken) {
         this.reportOperationError(error);
+        const failedPlayer: PlayerAdapter | null = this.player;
+        if (failedPlayer !== null) {
+          await this.release();
+        }
       }
     }
   }
@@ -540,9 +560,13 @@ export class PlayerController implements ProgressSource {
   };
 
   private handleSeekDone: PlayerNumberHandler = (milliseconds: number): void => {
-    this.cachedCurrentTimeMs = this.validNativeMilliseconds(milliseconds);
+    if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+      diag(`seek done ignored nativeMs=${milliseconds}`);
+      return;
+    }
+    this.cachedCurrentTimeMs = milliseconds;
     this.hasCurrentTimeUpdate = true;
-    this.onSeekDone(this.cachedCurrentTimeMs / 1000);
+    this.onSeekDone(milliseconds / 1000);
   };
 
   private handleDurationUpdate: PlayerNumberHandler = (milliseconds: number): void => {
@@ -550,14 +574,17 @@ export class PlayerController implements ProgressSource {
   };
 
   private handleTimeUpdate: PlayerNumberHandler = (milliseconds: number): void => {
-    const nativeMs: number = this.validNativeMilliseconds(milliseconds);
-    this.cachedCurrentTimeMs = nativeMs;
+    if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+      diag(`time update ignored nativeMs=${milliseconds}`);
+      return;
+    }
+    this.cachedCurrentTimeMs = milliseconds;
     this.hasCurrentTimeUpdate = true;
-    const uiSeconds: number = nativeMs / 1000;
+    const uiSeconds: number = milliseconds / 1000;
     const wholeSecond: number = Math.floor(uiSeconds);
     if (wholeSecond !== this.lastLoggedSecond) {
       this.lastLoggedSecond = wholeSecond;
-      diag(`time update nativeMs=${nativeMs} uiSeconds=${uiSeconds.toFixed(3)} durationSeconds=${this.duration.toFixed(3)}`);
+      diag(`time update nativeMs=${milliseconds} uiSeconds=${uiSeconds.toFixed(3)} durationSeconds=${this.duration.toFixed(3)}`);
     }
     this.onTimeUpdate(uiSeconds);
   };

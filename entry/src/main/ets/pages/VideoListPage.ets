@@ -3,21 +3,19 @@ import { AppConfig } from '../config/AppConfig';
 import { VideoFileInfo } from '../model/VideoLibrary';
 import { VideoListViewModel } from '../viewmodel/VideoLibraryViewModel';
 import { CachedThumbnail } from './components/CachedThumbnail';
-import { PlayerPage, PlayerShutdownHandler } from './PlayerPage';
 
 @ComponentV2
 export struct VideoListPage {
   @Require @Param folderPath: string;
   @Require @Param hostName: string;
   @Event onVisibilityChange: (visible: boolean) => void = (_visible: boolean): void => {};
+  @Event onPlayFile: (file: VideoFileInfo) => void = (_file: VideoFileInfo): void => {};
   @Local private config: AppConfig = AppConfig.getInstance();
   @Local private viewModel: VideoListViewModel =
     new VideoListViewModel(AppConfig.getInstance().getClient(), '', '');
   @Local private editMode: boolean = false;
-  @Local private selectedFile: VideoFileInfo | null = null;
   private pollingTimer: number = -1;
   private initialized: boolean = false;
-  private playerShutdownHandler: PlayerShutdownHandler | null = null;
 
   aboutToAppear(): void {
     this.ensureViewModel();
@@ -63,29 +61,8 @@ export struct VideoListPage {
     }
   }
 
-  openPlayer(file: VideoFileInfo): void {
-    this.selectedFile = file;
-  }
-
-  private closePlayer(): void {
-    this.playerShutdownHandler = null;
-    this.selectedFile = null;
-  }
-
-  private dismissPlayerCover(action: DismissContentCoverAction): void {
-    const shutdown: PlayerShutdownHandler | null = this.playerShutdownHandler;
-    if (shutdown === null) {
-      this.closePlayer();
-      action.dismiss();
-      return;
-    }
-    shutdown(`contentCover:${action.reason}`).then((): void => {
-      action.dismiss();
-      this.closePlayer();
-    }).catch((): void => {
-      action.dismiss();
-      this.closePlayer();
-    });
+  private openPlayer(file: VideoFileInfo): void {
+    this.onPlayFile(file);
   }
 
   private async confirmDelete(file: VideoFileInfo): Promise<void> {
@@ -248,19 +225,6 @@ export struct VideoListPage {
   }
 
   @Builder
-  private playerCover() {
-    if (this.selectedFile !== null) {
-      PlayerPage({
-        file: this.selectedFile,
-        onClose: (): void => this.closePlayer(),
-        onShutdownReady: (handler: PlayerShutdownHandler | null): void => {
-          this.playerShutdownHandler = handler;
-        }
-      })
-    }
-  }
-
-  @Builder
   private emptyState() {
     Column({ space: 10 }) {
       Text('该主播还没有录像')
@@ -293,7 +257,8 @@ export struct VideoListPage {
 
   build() {
     NavDestination() {
-      Column() {
+      Stack() {
+        Column() {
         Row() {
           Blank()
           if (this.viewModel.files.length > 0) {
@@ -360,12 +325,12 @@ export struct VideoListPage {
               this.confirmBatchDelete().catch((): void => {});
             })
         }
+        }
+        .width('100%')
+        .height('100%')
       }
       .width('100%')
       .height('100%')
-      .bindContentCover(this.selectedFile !== null, this.playerCover, {
-        onWillDismiss: (action: DismissContentCoverAction): void => this.dismissPlayerCover(action)
-      })
     }
     .title(this.hostName)
     .onShown((_reason: VisibilityChangeReason): void => this.activate())

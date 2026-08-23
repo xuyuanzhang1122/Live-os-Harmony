@@ -353,6 +353,16 @@ export default function task3PlayerTest(): void {
       expect(adapter.unboundCount).assertEqual(8);
     });
 
+    it('refreshes native currentTime when timeUpdate is silent', 0, async (): Promise<void> => {
+      const adapter: FakePlayerAdapter = new FakePlayerAdapter();
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      await controller.setup('https://server/video.mp4', 'surface-1');
+
+      adapter.currentTime = 37500;
+      expect(controller.refreshCurrentTime()).assertEqual(37.5);
+      expect(controller.currentTime).assertEqual(37.5);
+      await controller.release();
+    });
     it('converts native timeUpdate milliseconds to observable UI seconds', 0, async (): Promise<void> => {
       const adapter: FakePlayerAdapter = new FakePlayerAdapter();
       const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);

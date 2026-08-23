@@ -1,7 +1,9 @@
 import { Haptics } from '../common/Haptics';
 import { AppConfig } from '../config/AppConfig';
+import { VideoFileInfo } from '../model/VideoLibrary';
 import { VideoLibraryPage, VideoListRouteParams } from './VideoLibraryPage';
 import { VideoListPage } from './VideoListPage';
+import { PlayerPage } from './PlayerPage';
 import { AboutPage } from './AboutPage';
 import { ApiKeyPage } from './ApiKeyPage';
 import { NetworkConfigPage } from './NetworkConfigPage';
@@ -15,6 +17,7 @@ struct Index {
   @Local private selectedTab: number = 0;
   @Local private config: AppConfig = AppConfig.getInstance();
   @Local private videoListVisible: boolean = false;
+  @Local private activePlayerFile: VideoFileInfo | null = null;
   @Local private settingsRefreshToken: number = 0;
 
   private readonly videoLibraryStack: NavPathStack = new NavPathStack();
@@ -43,6 +46,9 @@ struct Index {
         hostName: (param as VideoListRouteParams).hostName,
         onVisibilityChange: (visible: boolean): void => {
           this.videoListVisible = visible;
+        },
+        onPlayFile: (file: VideoFileInfo): void => {
+          this.activePlayerFile = file;
         }
       })
     } else {
@@ -186,40 +192,52 @@ struct Index {
 
   build() {
     Stack({ alignContent: Alignment.Top }) {
-      Tabs({
-        barPosition: BarPosition.End,
-        index: this.selectedTab
-      }) {
-        TabContent() {
-          this.videoLibraryTab()
-        }
-        .tabBar(this.tabBar('视频库', 0))
+      if (this.activePlayerFile !== null) {
+        PlayerPage({
+          file: this.activePlayerFile,
+          onClose: (): void => {
+            this.activePlayerFile = null;
+          }
+        })
+          .width('100%')
+          .height('100%')
+          .zIndex(10)
+      } else {
+        Tabs({
+          barPosition: BarPosition.End,
+          index: this.selectedTab
+        }) {
+          TabContent() {
+            this.videoLibraryTab()
+          }
+          .tabBar(this.tabBar('视频库', 0))
 
-        TabContent() {
-          this.roomListTab()
-        }
-        .tabBar(this.tabBar('直播间', 1))
+          TabContent() {
+            this.roomListTab()
+          }
+          .tabBar(this.tabBar('直播间', 1))
 
-        TabContent() {
-          this.historyTab()
-        }
-        .tabBar(this.tabBar('历史', 2))
+          TabContent() {
+            this.historyTab()
+          }
+          .tabBar(this.tabBar('历史', 2))
 
-        TabContent() {
-          this.settingsTab()
+          TabContent() {
+            this.settingsTab()
+          }
+          .tabBar(this.tabBar('设置', 3))
         }
-        .tabBar(this.tabBar('设置', 3))
-      }
-      .width('100%')
-      .height('100%')
-      .barHeight(56)
-      .onChange((index: number): void => {
-        this.selectedTab = index;
-        Haptics.selection();
-      })
+        .width('100%')
+        .height('100%')
+        .barHeight(56)
+        .onChange((index: number): void => {
+          this.selectedTab = index;
+          Haptics.selection();
+        })
 
-      if (this.config.activeURL.length === 0) {
-        this.unconfiguredBanner()
+        if (this.config.activeURL.length === 0) {
+          this.unconfiguredBanner()
+        }
       }
     }
     .width('100%')
