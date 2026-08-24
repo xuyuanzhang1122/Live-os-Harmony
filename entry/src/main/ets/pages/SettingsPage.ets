@@ -1,9 +1,12 @@
 import { pasteboard } from '@kit.BasicServicesKit';
 import { ApiCache } from '../net/ApiCache';
 import { ThumbnailCache } from '../cache/ThumbnailCache';
+import { AppButtonRole, ConnectionVisualState, settingsConnectionVisualState } from '../common/Theme';
 import { AppConfig } from '../config/AppConfig';
 import { ServerInfo } from '../model/Common';
 import { apiKeySummary, apiKeySummaryNeedsReload, totalCacheBytes } from '../viewmodel/SettingsViewModel';
+import { AppActionButton } from './components/AppActionButton';
+import { SettingsRowIcon } from './components/SettingsRowIcon';
 
 const GITHUB_URL: string = 'https://github.com/xuyuanzhang1122/bililive-harmony';
 
@@ -58,10 +61,13 @@ export struct SettingsPage {
   }
 
   private reloadApiKeySummary(): void {
+    // 先同步给出绑定状态，异步读取成功后再补全尾号；读取返回空时不覆盖已绑定文案
+    this.keyText = this.config.apiKeyBound ? '已配置' : '未设置';
     this.config.getApiKey().then((key: string): void => {
-      this.keyText = apiKeySummary(key, null);
+      if (key.trim().length > 0 || !this.config.apiKeyBound) {
+        this.keyText = apiKeySummary(key, null);
+      }
     }).catch((): void => {
-      this.keyText = this.config.apiKeyBound ? '已配置' : '未设置';
     });
   }
 
@@ -74,6 +80,11 @@ export struct SettingsPage {
 
   private serverVersion(): string {
     return this.config.serverInfo === null ? '-' : this.config.serverInfo.app_version;
+  }
+
+  private connectionVisualState(): ConnectionVisualState {
+    return settingsConnectionVisualState(this.testingConnection, this.connectionFailed,
+      this.config.isOnLAN, this.config.serverInfo !== null);
   }
 
   private async testConnection(): Promise<void> {
@@ -120,213 +131,287 @@ export struct SettingsPage {
   private groupTitle(title: string) {
     Text(title)
       .width('100%')
-      .fontSize(13)
+      .fontSize(12)
       .fontWeight(FontWeight.Medium)
       .fontColor($r('sys.color.font_secondary'))
-      .padding({ left: 12, bottom: 7 })
+      .padding({ left: 6, bottom: 8 })
   }
 
   @Builder
   private line() {
     Divider()
-      .margin({ left: 16 })
+      .margin({ left: 62 })
       .color($r('sys.color.comp_divider'))
+  }
+
+  @Builder
+  private chevron() {
+    SymbolGlyph($r('sys.symbol.chevron_right'))
+      .fontSize(16)
+      .fontColor([$r('sys.color.font_secondary')])
+  }
+
+  @Builder
+  private navRow(symbol: Resource, iconColor: ResourceColor, iconBackground: ResourceColor,
+    title: string, subtitle: string, route: string) {
+    Button() {
+      Row({ space: 12 }) {
+        SettingsRowIcon({ symbol: symbol, color: iconColor, tileColor: iconBackground })
+        Column({ space: 3 }) {
+          Text(title)
+            .width('100%')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('sys.color.font_primary'))
+            .textAlign(TextAlign.Start)
+          if (subtitle.length > 0) {
+            Text(subtitle)
+              .width('100%')
+              .fontSize(12)
+              .fontColor($r('sys.color.font_secondary'))
+              .textAlign(TextAlign.Start)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        this.chevron()
+      }
+      .width('100%')
+      .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    }
+    .type(ButtonType.Normal)
+    .width('100%')
+    .backgroundColor(Color.Transparent)
+    .borderRadius(12)
+    .onClick((): void => this.stack.pushPath({ name: route }))
+  }
+
+  @Builder
+  private connectionIcon() {
+    if (this.connectionVisualState() === ConnectionVisualState.Loading) {
+      Stack() {
+        LoadingProgress().width(18).height(18).color('#0D8D81')
+      }
+      .width(34)
+      .height(34)
+      .backgroundColor('#181FDBC7')
+      .borderRadius(10)
+    } else if (this.connectionVisualState() === ConnectionVisualState.Failure) {
+      SettingsRowIcon({
+        symbol: $r('sys.symbol.xmark_circle_fill'), color: '#E84040', tileColor: '#16E84040'
+      })
+    } else if (this.connectionVisualState() === ConnectionVisualState.LAN) {
+      SettingsRowIcon({ symbol: $r('sys.symbol.wifi'), color: '#20A66A', tileColor: '#1820A66A' })
+    } else if (this.connectionVisualState() === ConnectionVisualState.Public) {
+      SettingsRowIcon({
+        symbol: $r('sys.symbol.worldclock_fill_1'), color: '#3478F6', tileColor: '#183478F6'
+      })
+    } else {
+      SettingsRowIcon({ symbol: $r('sys.symbol.circle'), color: '#8E8E93', tileColor: '#188E8E93' })
+    }
   }
 
   @Builder
   private serverSection() {
     Column() {
-      Column({ space: 3 }) {
-        Row() {
-          Column({ space: 3 }) {
-            Text('网络配置').fontSize(16)
-            Text(this.networkSubtitle())
-              .fontSize(12)
-              .fontColor($r('sys.color.font_secondary'))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-          }
-          .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1)
-          Text('›').fontSize(24).fontColor($r('sys.color.font_secondary'))
-        }
-        .width('100%')
-        .padding(16)
-      }
-      .onClick((): void => this.stack.pushPath({ name: 'NetworkConfigPage' }))
+      this.navRow($r('sys.symbol.network_acceleration'), '#3478F6', '#183478F6',
+        '网络配置', this.networkSubtitle(), 'NetworkConfigPage')
       this.line()
-      Row() {
-        Text('恢复备份').fontSize(16).layoutWeight(1)
-        Text('›').fontSize(24).fontColor($r('sys.color.font_secondary'))
-      }
-      .width('100%')
-      .padding(16)
-      .onClick((): void => this.stack.pushPath({ name: 'RestoreBackupPage' }))
+      this.navRow($r('sys.symbol.square_and_arrow_down'), '#14A89A', '#1814A89A',
+        '恢复备份', '通过 ID 或本地文件找回配置', 'RestoreBackupPage')
       this.line()
-      Row({ space: 10 }) {
-        Text('连接状态').fontSize(16).layoutWeight(1)
-        if (!this.testingConnection && !this.connectionFailed && this.config.serverInfo !== null) {
-          if (this.config.isOnLAN) {
-            SymbolGlyph($r('sys.symbol.wifi')).fontSize(17).fontColor([$r('app.color.brand_color')])
-          } else {
-            Text('🌐').fontSize(17)
-          }
+      Row({ space: 12 }) {
+        this.connectionIcon()
+        Column({ space: 3 }) {
+          Text('连接状态').width('100%').fontSize(16).fontWeight(FontWeight.Medium)
+          Text(this.testingConnection ? '正在测试服务器…' : this.connectionText)
+            .width('100%')
+            .fontSize(12)
+            .fontColor(this.connectionFailed ? '#E84040' : $r('sys.color.font_secondary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
-        Text(this.testingConnection ? '测试中…' : this.connectionText)
-          .fontSize(13)
-          .fontColor(this.connectionFailed ? '#E84040' : $r('sys.color.font_secondary'))
-          .maxLines(1)
-        Button('测试')
-          .type(ButtonType.Normal)
-          .fontSize(13)
-          .fontColor($r('app.color.brand_color'))
-          .backgroundColor(Color.Transparent)
-          .enabled(!this.testingConnection)
-          .onClick((): void => {
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        AppActionButton({
+          title: this.testingConnection ? '测试中' : '测试',
+          role: AppButtonRole.Secondary,
+          isEnabled: !this.testingConnection,
+          fill: false,
+          compact: true,
+          onPress: (): void => {
             this.testConnection().catch((): void => {});
-          })
+          }
+        })
       }
       .width('100%')
-      .padding({ left: 16, right: 8, top: 10, bottom: 10 })
+      .padding({ left: 14, right: 12, top: 12, bottom: 12 })
       this.line()
-      Row() {
+      Row({ space: 12 }) {
+        SettingsRowIcon({
+          symbol: $r('sys.symbol.externaldrive_fill'), color: '#8B5CF6', tileColor: '#188B5CF6'
+        })
         Text('服务器版本').fontSize(16).layoutWeight(1)
         Text(this.serverVersion()).fontSize(14).fontColor($r('sys.color.font_secondary'))
       }
       .width('100%')
-      .padding(16)
+      .padding({ left: 14, right: 14, top: 12, bottom: 12 })
     }
     .width('100%')
-    .backgroundColor($r('sys.color.comp_background_primary'))
-    .borderRadius(14)
+    .backgroundColor($r('app.color.settings_card_background'))
+    .border({ width: 1, color: $r('app.color.settings_card_border') })
+    .borderRadius(18)
+    .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
     .clip(true)
   }
 
   @Builder
   private backupSection() {
-    Column({ space: 8 }) {
+    Column({ space: 12 }) {
       Row({ space: 12 }) {
-        Text('URL').fontSize(16)
-        TextInput({ text: this.backupInput, placeholder: '留空则存主服务器' })
-          .layoutWeight(1)
-          .backgroundColor(Color.Transparent)
-          .textAlign(TextAlign.End)
-          .onChange((value: string): void => {
-            this.backupInput = value;
-          })
-          .onBlur((): void => this.saveBackupURL())
+        SettingsRowIcon({
+          symbol: $r('sys.symbol.icloud'), color: '#3478F6', tileColor: '#183478F6'
+        })
+        Column({ space: 3 }) {
+          Text('备份地址').width('100%').fontSize(16).fontWeight(FontWeight.Medium)
+          Text('远端备份独立保存位置')
+            .width('100%')
+            .fontSize(12)
+            .fontColor($r('sys.color.font_secondary'))
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
       }
-      .width('100%')
-      .padding(16)
-      Text('配置后远端备份上传到该服务器，主服务器重装后仍可凭 ID 找回；留空则存主服务器')
+      TextInput({ text: this.backupInput, placeholder: '留空则存主服务器' })
         .width('100%')
-        .fontSize(12)
-        .fontColor($r('sys.color.font_secondary'))
-        .padding({ left: 12, right: 12, bottom: 2 })
-    }
-  }
-
-  @Builder
-  private simpleNavRow(title: string, subtitle: string, route: string) {
-    Row({ space: 12 }) {
-      Text(title).fontSize(16).layoutWeight(1)
-      Text(subtitle)
-        .fontSize(13)
-        .fontColor($r('sys.color.font_secondary'))
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      Text('›').fontSize(24).fontColor($r('sys.color.font_secondary'))
+        .height(46)
+        .backgroundColor($r('app.color.settings_input_background'))
+        .borderRadius(12)
+        .onChange((value: string): void => {
+          this.backupInput = value;
+        })
+        .onBlur((): void => this.saveBackupURL())
     }
     .width('100%')
-    .padding(16)
-    .onClick((): void => this.stack.pushPath({ name: route }))
+    .padding(14)
+    .alignItems(HorizontalAlign.Start)
+    .backgroundColor($r('app.color.settings_card_background'))
+    .border({ width: 1, color: $r('app.color.settings_card_border') })
+    .borderRadius(18)
+    .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
   }
 
   build() {
     Row() {
       List({ space: 18 }) {
-      ListItem() {
-        Column() {
-          this.groupTitle('服务器')
-          this.serverSection()
-        }
-      }
-
-      ListItem() {
-        Column() {
-          this.groupTitle('备份服务器（源站）')
+        ListItem() {
           Column() {
+            this.groupTitle('服务器')
+            this.serverSection()
+          }
+        }
+
+        ListItem() {
+          Column() {
+            this.groupTitle('备份服务器（源站）')
             this.backupSection()
+            Text('配置后远端备份上传到该服务器，主服务器重装后仍可凭 ID 找回；留空则存主服务器。')
+              .width('100%')
+              .fontSize(12)
+              .fontColor($r('sys.color.font_secondary'))
+              .padding({ left: 8, right: 8, top: 8 })
           }
-          .backgroundColor($r('sys.color.comp_background_primary'))
-          .borderRadius(14)
-          .padding({ bottom: 10 })
         }
-      }
 
-      ListItem() {
-        Column() {
-          this.groupTitle('认证')
+        ListItem() {
           Column() {
-            this.simpleNavRow('API Key', this.keyText, 'ApiKeyPage')
+            this.groupTitle('认证')
+            Column() {
+              this.navRow($r('sys.symbol.key_fill'), '#F59E0B', '#18F59E0B',
+                'API Key', this.keyText, 'ApiKeyPage')
+            }
+            .backgroundColor($r('app.color.settings_card_background'))
+            .border({ width: 1, color: $r('app.color.settings_card_border') })
+            .borderRadius(18)
+            .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
+            Text('在服务端 Web 设置页开启 API Key 后填入，各设备进度互不串扰。')
+              .width('100%')
+              .fontSize(12)
+              .fontColor($r('sys.color.font_secondary'))
+              .padding({ left: 8, right: 8, top: 8 })
           }
-          .backgroundColor($r('sys.color.comp_background_primary'))
-          .borderRadius(14)
-          Text('在服务端 Web 设置页开启 API Key 后填入，各设备进度互不串扰')
-            .width('100%')
-            .fontSize(12)
-            .fontColor($r('sys.color.font_secondary'))
-            .padding({ left: 12, right: 12, top: 7 })
         }
-      }
 
-      ListItem() {
-        Column() {
-          this.groupTitle('存储')
+        ListItem() {
           Column() {
-            this.simpleNavRow('存储管理', this.cacheText, 'StorageManagementPage')
+            this.groupTitle('存储')
+            Column() {
+              this.navRow($r('sys.symbol.externaldrive_fill'), '#8B5CF6', '#188B5CF6',
+                '存储管理', this.cacheText, 'StorageManagementPage')
+            }
+            .backgroundColor($r('app.color.settings_card_background'))
+            .border({ width: 1, color: $r('app.color.settings_card_border') })
+            .borderRadius(18)
+            .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
           }
-          .backgroundColor($r('sys.color.comp_background_primary'))
-          .borderRadius(14)
         }
-      }
 
-      ListItem() {
-        Column() {
-          this.groupTitle('关于')
+        ListItem() {
           Column() {
-            this.simpleNavRow('版本', '2.0.0', 'AboutPage')
-            this.line()
-            Row() {
-              Text('GitHub').fontSize(16).layoutWeight(1)
-              Text('复制链接').fontSize(13).fontColor($r('sys.color.font_secondary'))
-              Text('›').fontSize(24).fontColor($r('sys.color.font_secondary'))
+            this.groupTitle('关于')
+            Column() {
+              this.navRow($r('sys.symbol.info_circle_fill'), '#3478F6', '#183478F6',
+                '版本', '2.0.0', 'AboutPage')
+              this.line()
+              Button() {
+                Row({ space: 12 }) {
+                  SettingsRowIcon({ symbol: $r('sys.symbol.link'), color: '#3478F6', tileColor: '#183478F6' })
+                  Text('GitHub 开源项目').fontSize(16).fontWeight(FontWeight.Medium).layoutWeight(1)
+                  Text('复制链接').fontSize(12).fontColor($r('sys.color.font_secondary'))
+                  this.chevron()
+                }
+                .width('100%')
+                .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+              }
+              .type(ButtonType.Normal)
+              .width('100%')
+              .backgroundColor(Color.Transparent)
+              .borderRadius(12)
+              .onClick((): void => this.copyGitHub())
             }
             .width('100%')
-            .padding(16)
-            .onClick((): void => this.copyGitHub())
-            this.line()
+            .backgroundColor($r('app.color.settings_card_background'))
+            .border({ width: 1, color: $r('app.color.settings_card_border') })
+            .borderRadius(18)
+            .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
+            .clip(true)
             Text('由 Xumy 开发')
               .width('100%')
-              .padding(16)
-              .fontSize(14)
+              .padding({ top: 14, bottom: 4 })
+              .fontSize(13)
               .fontColor($r('sys.color.font_secondary'))
               .textAlign(TextAlign.Center)
           }
-          .backgroundColor($r('sys.color.comp_background_primary'))
-          .borderRadius(14)
-          .clip(true)
         }
       }
-    }
       .width('100%')
       .height('100%')
       .constraintSize({ maxWidth: 960 })
-      .padding({ left: 12, right: 12, top: 12, bottom: 28 })
+      .padding({ left: 14, right: 14, top: 14, bottom: 32 })
+      .backgroundColor(Color.Transparent)
       .edgeEffect(EdgeEffect.Spring)
     }
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
+    .linearGradient({
+      angle: 180,
+      colors: [
+        [$r('app.color.settings_background_top'), 0.0],
+        [$r('app.color.settings_background_bottom'), 1.0]
+      ]
+    })
   }
 }

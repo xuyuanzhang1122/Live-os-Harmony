@@ -1,7 +1,9 @@
 import { AppConfig } from '../config/AppConfig';
+import { AppButtonRole } from '../common/Theme';
 import { APIKeyUser } from '../model/Common';
 import { APIClient } from '../net/APIClient';
 import { apiKeyValidationError } from '../viewmodel/SettingsViewModel';
+import { AppActionButton } from './components/AppActionButton';
 
 @ComponentV2
 export struct ApiKeyPage {
@@ -118,14 +120,14 @@ export struct ApiKeyPage {
     Column({ space: 16 }) {
       Row({ space: 13 }) {
         Text(this.avatarLetter())
-          .width(46)
-          .height(46)
-          .fontSize(20)
+          .width(54)
+          .height(54)
+          .fontSize(22)
           .fontWeight(FontWeight.Bold)
-          .fontColor(Color.White)
+          .fontColor('#063D38')
           .textAlign(TextAlign.Center)
           .backgroundColor($r('app.color.brand_color'))
-          .borderRadius(23)
+          .borderRadius(18)
         Column({ space: 3 }) {
           Text(this.userName())
             .fontSize(17)
@@ -137,31 +139,39 @@ export struct ApiKeyPage {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
         Row({ space: 4 }) {
-          SymbolGlyph($r('sys.symbol.cloud')).fontSize(14).fontColor([$r('app.color.brand_color')])
-          Text('已同步').fontSize(12).fontColor($r('app.color.brand_color'))
+          SymbolGlyph($r('sys.symbol.checkmark_icloud_fill')).fontSize(14).fontColor(['#20A66A'])
+          Text('已同步').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#20A66A')
         }
         .padding({ left: 9, right: 9, top: 5, bottom: 5 })
-        .backgroundColor('#14FF6699')
+        .backgroundColor('#1820A66A')
         .borderRadius(14)
       }
 
-      Row() {
-        Text('API Key').fontSize(14).layoutWeight(1)
-        Text(`••••${this.keyTail()}`).fontSize(14).fontColor($r('sys.color.font_secondary'))
+      Row({ space: 8 }) {
+        Text(`Key 末尾 ${this.keyTail()}`)
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+          .backgroundColor($r('app.color.settings_card_background'))
+          .borderRadius(14)
+        Text('观看记录已隔离')
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+          .backgroundColor($r('app.color.settings_card_background'))
+          .borderRadius(14)
       }
-
-      Divider().color($r('sys.color.comp_divider'))
 
       Column({ space: 8 }) {
         Row({ space: 8 }) {
-          Text('✓').fontSize(17).fontColor($r('app.color.brand_color'))
+          SymbolGlyph($r('sys.symbol.checkmark_circle_fill')).fontSize(17).fontColor(['#20A66A'])
           Text('此设备会只读取该用户的服务端观看历史')
             .layoutWeight(1)
             .fontSize(13)
             .fontColor($r('sys.color.font_secondary'))
         }
         Row({ space: 8 }) {
-          Text('↻').fontSize(17).fontColor($r('app.color.brand_color'))
+          SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(17).fontColor(['#0D8D81'])
           Text('退出播放器时把最新进度同步回后端')
             .layoutWeight(1)
             .fontSize(13)
@@ -172,10 +182,11 @@ export struct ApiKeyPage {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(18)
-    .backgroundColor($r('sys.color.comp_background_primary'))
+    .backgroundColor('#161FDBC7')
     .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
-    .borderRadius(16)
-    .shadow({ radius: 12, color: '#18000000', offsetY: 4 })
+    .border({ width: 1, color: '#401FDBC7' })
+    .borderRadius(24)
+    .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
   }
 
   @Builder
@@ -190,36 +201,42 @@ export struct ApiKeyPage {
           .layoutWeight(1)
           .height(46)
           .type(this.showKey ? InputType.Normal : InputType.Password)
-          .backgroundColor($r('sys.color.comp_background_secondary'))
-          .borderRadius(10)
+          .backgroundColor($r('app.color.settings_input_background'))
+          .borderRadius(12)
           .onChange((value: string): void => {
             this.inputKey = value;
             this.errorText = '';
           })
-        Button(this.showKey ? '隐藏' : '显示')
+        Button() {
+          SymbolGlyph(this.showKey ? $r('sys.symbol.eye_slash') : $r('sys.symbol.eye'))
+            .fontSize(20)
+            .fontColor([$r('sys.color.font_secondary')])
+        }
           .type(ButtonType.Normal)
+          .width(42)
           .height(42)
-          .fontSize(13)
-          .fontColor($r('app.color.brand_color'))
-          .backgroundColor(Color.Transparent)
+          .backgroundColor($r('app.color.settings_input_background'))
+          .borderRadius(12)
           .onClick((): void => {
             this.showKey = !this.showKey;
           })
       }
-      Button(this.validating ? '测试中…' : '测试并绑定')
-        .width('100%')
-        .height(46)
-        .fontColor(Color.White)
-        .backgroundColor($r('app.color.brand_color'))
-        .enabled(!this.validating)
-        .onClick((): void => {
+      AppActionButton({
+        title: this.validating ? '测试中…' : '测试并绑定',
+        role: AppButtonRole.Primary,
+        isEnabled: !this.validating,
+        loading: this.validating,
+        onPress: (): void => {
           this.validateAndBind().catch((): void => {});
-        })
+        }
+      })
     }
     .width('100%')
     .padding(16)
-    .backgroundColor($r('sys.color.comp_background_primary'))
-    .borderRadius(14)
+    .backgroundColor($r('app.color.settings_card_background'))
+    .border({ width: 1, color: $r('app.color.settings_card_border') })
+    .borderRadius(18)
+    .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
   }
 
   build() {
@@ -237,36 +254,37 @@ export struct ApiKeyPage {
             .padding(24)
           } else if (this.user !== null) {
             this.boundKeyCard()
-            Button('清除已保存的 Key')
-              .width('100%')
-              .height(46)
-              .fontColor('#E84040')
-              .backgroundColor('#14E84040')
-              .onClick((): void => {
+            AppActionButton({
+              title: '清除已保存的 Key',
+              role: AppButtonRole.Destructive,
+              onPress: (): void => {
                 this.confirmClear().catch((): void => {});
-              })
+              }
+            })
           } else {
             this.keyForm()
             if (this.savedKey.length > 0) {
-              Button('清除已保存的 Key')
-                .width('100%')
-                .height(46)
-                .fontColor('#E84040')
-                .backgroundColor('#14E84040')
-                .onClick((): void => {
+              AppActionButton({
+                title: '清除已保存的 Key',
+                role: AppButtonRole.Destructive,
+                onPress: (): void => {
                   this.confirmClear().catch((): void => {});
-                })
+                }
+              })
             }
           }
 
           if (this.errorText.length > 0) {
-            Text(this.errorText)
+            Row({ space: 9 }) {
+              SymbolGlyph($r('sys.symbol.exclamationmark_triangle_fill'))
+                .fontSize(17)
+                .fontColor(['#E84040'])
+              Text(this.errorText).layoutWeight(1).fontSize(13).fontColor('#E84040')
+            }
               .width('100%')
               .padding(12)
-              .fontSize(13)
-              .fontColor('#E84040')
               .backgroundColor('#14E84040')
-              .borderRadius(10)
+              .borderRadius(12)
           }
           }
           .width('100%')
@@ -279,6 +297,13 @@ export struct ApiKeyPage {
       .width('100%')
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .linearGradient({
+        angle: 180,
+        colors: [
+          [$r('app.color.settings_background_top'), 0.0],
+          [$r('app.color.settings_background_bottom'), 1.0]
+        ]
+      })
     }
     .title('API Key')
   }

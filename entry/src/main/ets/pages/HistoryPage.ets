@@ -1,4 +1,5 @@
 import { Formats } from '../common/Formats';
+import { AppButtonRole } from '../common/Theme';
 import { AppConfig } from '../config/AppConfig';
 import { WatchHistoryEntry } from '../model/HistoryEntry';
 import { VideoFileInfo } from '../model/VideoLibrary';
@@ -10,6 +11,7 @@ import {
   historyVideoFile
 } from '../viewmodel/HistoryViewModel';
 import { CachedThumbnail } from './components/CachedThumbnail';
+import { AppActionButton } from './components/AppActionButton';
 
 @ComponentV2
 export struct HistoryPage {
@@ -102,8 +104,12 @@ export struct HistoryPage {
         .fontSize(14)
         .fontColor($r('sys.color.font_secondary'))
         .textAlign(TextAlign.Center)
-      Button('去设置')
-        .onClick((): void => this.onOpenSettings())
+      AppActionButton({
+        title: '去设置',
+        role: AppButtonRole.Secondary,
+        fill: false,
+        onPress: (): void => this.onOpenSettings()
+      })
     }
     .width('100%')
     .height('100%')
@@ -141,8 +147,12 @@ export struct HistoryPage {
         .fontSize(14)
         .fontColor($r('sys.color.font_secondary'))
         .textAlign(TextAlign.Center)
-      Button('重试')
-        .onClick((): void => this.activate())
+      AppActionButton({
+        title: '重试',
+        role: AppButtonRole.Secondary,
+        fill: false,
+        onPress: (): void => this.activate()
+      })
     }
     .width('100%')
     .height('100%')

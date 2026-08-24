@@ -36,6 +36,8 @@ export class ApiKeyStore {
   }
 
   async set(value: string): Promise<void> {
+    // Asset Store 为主存储；preferences 备用值始终同步写入，
+    // 避免部分设备上 asset 读取偶发失败后无值可回落，导致"已绑定却显示未设置"
     try {
       const query: asset.AssetMap = new Map<asset.Tag, asset.Value>();
       query.set(asset.Tag.ALIAS, ApiKeyStore.encode(ASSET_ALIAS));
@@ -49,15 +51,12 @@ export class ApiKeyStore {
         attributes.set(asset.Tag.SECRET, ApiKeyStore.encode(value));
         await asset.add(attributes);
       }
-      await this.prefs.delete(FALLBACK_KEY);
-      await this.prefs.flush();
-      return;
     } catch (_) {
-      try {
-        await this.prefs.put(FALLBACK_KEY, value);
-        await this.prefs.flush();
-      } catch (_) {
-      }
+    }
+    try {
+      await this.prefs.put(FALLBACK_KEY, value);
+      await this.prefs.flush();
+    } catch (_) {
     }
   }
 

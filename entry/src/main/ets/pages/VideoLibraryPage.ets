@@ -1,4 +1,5 @@
 import { Formats } from '../common/Formats';
+import { AppButtonRole } from '../common/Theme';
 import { AppConfig } from '../config/AppConfig';
 import { VideoRoomInfo } from '../model/VideoLibrary';
 import {
@@ -8,6 +9,7 @@ import {
   VideoLibraryViewModel
 } from '../viewmodel/VideoLibraryViewModel';
 import { CachedThumbnail } from './components/CachedThumbnail';
+import { AppActionButton } from './components/AppActionButton';
 
 export class VideoListRouteParams {
   folderPath: string;
@@ -111,10 +113,14 @@ export struct VideoLibraryPage {
         .fontSize(14)
         .fontColor($r('sys.color.font_secondary'))
         .textAlign(TextAlign.Center)
-      Button('重试')
-        .onClick((): void => {
+      AppActionButton({
+        title: '重试',
+        role: AppButtonRole.Secondary,
+        fill: false,
+        onPress: (): void => {
           this.viewModel.load(true).catch((): void => {});
-        })
+        }
+      })
     }
     .width('100%')
     .height('100%')

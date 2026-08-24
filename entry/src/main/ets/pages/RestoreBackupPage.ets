@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
+import { AppButtonRole } from '../common/Theme';
 import { AppConfig } from '../config/AppConfig';
 import { BackupPackage } from '../model/BackupModels';
 import {
@@ -8,6 +9,8 @@ import {
   formatBackupExportTime,
   hasBackupDeviceConfig
 } from '../viewmodel/BackupViewModel';
+import { AppActionButton } from './components/AppActionButton';
+import { SettingsRowIcon } from './components/SettingsRowIcon';
 
 @ComponentV2
 export struct RestoreBackupPage {
@@ -126,7 +129,7 @@ export struct RestoreBackupPage {
         .layoutWeight(1)
         .height(38)
         .type(ButtonType.Normal)
-        .fontColor(this.selectedMode === 0 ? Color.White : $r('sys.color.font_secondary'))
+        .fontColor(this.selectedMode === 0 ? '#063D38' : $r('sys.color.font_secondary'))
         .backgroundColor(this.selectedMode === 0 ? $r('app.color.brand_color') : Color.Transparent)
         .borderRadius(9)
         .onClick((): void => {
@@ -137,7 +140,7 @@ export struct RestoreBackupPage {
         .layoutWeight(1)
         .height(38)
         .type(ButtonType.Normal)
-        .fontColor(this.selectedMode === 1 ? Color.White : $r('sys.color.font_secondary'))
+        .fontColor(this.selectedMode === 1 ? '#063D38' : $r('sys.color.font_secondary'))
         .backgroundColor(this.selectedMode === 1 ? $r('app.color.brand_color') : Color.Transparent)
         .borderRadius(9)
         .onClick((): void => {
@@ -147,8 +150,9 @@ export struct RestoreBackupPage {
     }
     .width('100%')
     .padding(3)
-    .backgroundColor($r('sys.color.comp_background_secondary'))
-    .borderRadius(12)
+    .backgroundColor($r('app.color.settings_input_background'))
+    .border({ width: 1, color: $r('app.color.settings_card_border') })
+    .borderRadius(13)
   }
 
   @Builder
@@ -170,10 +174,13 @@ export struct RestoreBackupPage {
   @Builder
   private backupPreview(pkg: BackupPackage) {
     Column({ space: 12 }) {
-      Text('备份预览')
-        .width('100%')
-        .fontSize(16)
-        .fontWeight(FontWeight.Bold)
+      Row({ space: 10 }) {
+        SettingsRowIcon({
+          symbol: $r('sys.symbol.doc_text_badge_checkmark'), color: '#14A89A', tileColor: '#1814A89A'
+        })
+        Text('备份预览').fontSize(16).fontWeight(FontWeight.Bold).layoutWeight(1)
+      }
+      .width('100%')
       this.previewRow('导出时间', formatBackupExportTime(pkg.exportedAt ?? ''))
       this.previewRow('端口绑定', this.previewValue(pkg.server.rpc_bind ?? ''))
       this.previewRow('输出目录', this.previewValue(pkg.server.out_put_path ?? ''))
@@ -198,8 +205,10 @@ export struct RestoreBackupPage {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(16)
-    .backgroundColor($r('sys.color.comp_background_primary'))
-    .borderRadius(14)
+    .backgroundColor($r('app.color.settings_card_background'))
+    .border({ width: 1, color: $r('app.color.settings_card_border') })
+    .borderRadius(18)
+    .shadow({ radius: 12, color: $r('app.color.settings_card_shadow'), offsetY: 4 })
   }
 
   @Builder
@@ -216,22 +225,21 @@ export struct RestoreBackupPage {
         .width('100%')
         .height(48)
         .fontFamily('monospace')
-        .backgroundColor($r('sys.color.comp_background_secondary'))
-        .borderRadius(10)
+        .backgroundColor($r('app.color.settings_input_background'))
+        .borderRadius(12)
         .onChange((value: string): void => {
           this.restoreID = value;
           this.errorText = '';
         })
-      Button(this.viewModel.isRestoring ? '正在恢复…' : '找回并恢复')
-        .width('100%')
-        .height(46)
-        .fontColor(Color.White)
-        .backgroundColor(!this.viewModel.isRestoring && this.restoreID.trim().length > 0 ?
-          $r('app.color.brand_color') : '#909399')
-        .enabled(!this.viewModel.isRestoring && this.restoreID.trim().length > 0)
-        .onClick((): void => {
+      AppActionButton({
+        title: this.viewModel.isRestoring ? '正在恢复…' : '找回并恢复',
+        role: AppButtonRole.Primary,
+        isEnabled: !this.viewModel.isRestoring && this.restoreID.trim().length > 0,
+        loading: this.viewModel.isRestoring,
+        onPress: (): void => {
           this.restoreFromID().catch((): void => {});
-        })
+        }
+      })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -244,26 +252,26 @@ export struct RestoreBackupPage {
         .width('100%')
         .fontSize(13)
         .fontColor($r('sys.color.font_secondary'))
-      Button(this.selectingFile ? '正在选择…' : '选择本地备份文件')
-        .width('100%')
-        .height(46)
-        .enabled(!this.selectingFile && !this.viewModel.isRestoring)
-        .fontColor($r('app.color.brand_color'))
-        .backgroundColor('#141FDBC7')
-        .onClick((): void => {
+      AppActionButton({
+        title: this.selectingFile ? '正在选择…' : '选择本地备份文件',
+        role: AppButtonRole.Secondary,
+        isEnabled: !this.selectingFile && !this.viewModel.isRestoring,
+        loading: this.selectingFile,
+        onPress: (): void => {
           this.selectLocalBackup().catch((): void => {});
-        })
+        }
+      })
       if (this.importedPackage !== null) {
         this.backupPreview(this.importedPackage)
-        Button(this.viewModel.isRestoring ? '正在恢复…' : '恢复这个备份')
-          .width('100%')
-          .height(46)
-          .fontColor(Color.White)
-          .backgroundColor(this.viewModel.isRestoring ? '#909399' : $r('app.color.brand_color'))
-          .enabled(!this.viewModel.isRestoring)
-          .onClick((): void => {
+        AppActionButton({
+          title: this.viewModel.isRestoring ? '正在恢复…' : '恢复这个备份',
+          role: AppButtonRole.Primary,
+          isEnabled: !this.viewModel.isRestoring,
+          loading: this.viewModel.isRestoring,
+          onPress: (): void => {
             this.restoreImportedPackage().catch((): void => {});
-          })
+          }
+        })
       }
     }
     .width('100%')
@@ -285,8 +293,10 @@ export struct RestoreBackupPage {
           }
           .width('100%')
           .padding(16)
-          .backgroundColor($r('sys.color.comp_background_primary'))
-          .borderRadius(14)
+          .backgroundColor($r('app.color.settings_card_background'))
+          .border({ width: 1, color: $r('app.color.settings_card_border') })
+          .borderRadius(18)
+          .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
 
           if (this.viewModel.isRestoring) {
             Row({ space: 12 }) {
@@ -313,7 +323,9 @@ export struct RestoreBackupPage {
 
           if (this.errorText.length > 0) {
             Row({ space: 10 }) {
-              Text('!').fontSize(17).fontWeight(FontWeight.Bold).fontColor('#D67613')
+              SymbolGlyph($r('sys.symbol.exclamationmark_triangle_fill'))
+                .fontSize(18)
+                .fontColor(['#D67613'])
               Text(this.errorText).layoutWeight(1).fontSize(14).fontColor('#A45A12')
             }
             .width('100%')
@@ -338,6 +350,13 @@ export struct RestoreBackupPage {
       .width('100%')
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .linearGradient({
+        angle: 180,
+        colors: [
+          [$r('app.color.settings_background_top'), 0.0],
+          [$r('app.color.settings_background_bottom'), 1.0]
+        ]
+      })
     }
     .title('恢复备份')
     .onReady((context: NavDestinationContext): void => {

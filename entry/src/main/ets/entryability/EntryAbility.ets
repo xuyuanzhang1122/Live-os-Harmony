@@ -19,4 +19,9 @@ export default class EntryAbility extends UIAbility {
       }
     });
   }
+
+  onForeground(): void {
+    // 后台期间网络可能已切换而未收到回调，回前台时重测局域网可达性
+    AppConfig.getInstance().refreshNetworkStatus().catch((): void => {});
+  }
 }

@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import pasteboard from '@ohos.pasteboard';
+import { AppButtonRole } from '../../common/Theme';
 import { AppConfig } from '../../config/AppConfig';
 import { BackupDeviceConfig, BackupPackage } from '../../model/BackupModels';
 import {
@@ -9,6 +10,7 @@ import {
   backupFilename,
   backupUploadErrorText
 } from '../../viewmodel/BackupViewModel';
+import { AppActionButton } from './AppActionButton';
 
 @ComponentV2
 export struct BackupExportSheet {
@@ -134,10 +136,10 @@ export struct BackupExportSheet {
   @Builder
   private statusCard(message: string, error: boolean) {
     Row({ space: 10 }) {
-      Text(error ? '!' : '✓')
-        .fontSize(16)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(error ? '#D67613' : '#188A62')
+      SymbolGlyph(error ? $r('sys.symbol.exclamationmark_triangle_fill') :
+        $r('sys.symbol.checkmark_circle_fill'))
+        .fontSize(18)
+        .fontColor([error ? '#D67613' : '#188A62'])
       Text(message)
         .layoutWeight(1)
         .fontSize(14)
@@ -153,11 +155,13 @@ export struct BackupExportSheet {
     Scroll() {
       Column({ space: 16 }) {
         Row() {
-          Button('关闭')
-            .type(ButtonType.Normal)
-            .fontColor($r('sys.color.font_secondary'))
-            .backgroundColor(Color.Transparent)
-            .onClick((): void => this.onClose())
+          AppActionButton({
+            title: '关闭',
+            role: AppButtonRole.Plain,
+            fill: false,
+            compact: true,
+            onPress: (): void => this.onClose()
+          })
           Text('导出备份')
             .layoutWeight(1)
             .fontSize(20)
@@ -172,19 +176,14 @@ export struct BackupExportSheet {
           .fontSize(13)
           .fontColor($r('sys.color.font_secondary'))
 
-        Button(this.isWorking ? '正在导出…' : '导出并备份') {
-          if (this.isWorking) {
-            LoadingProgress().width(20).height(20).margin({ right: 8 })
+        AppActionButton({
+          title: this.isWorking ? '正在导出…' : '导出并备份',
+          role: AppButtonRole.Primary,
+          isEnabled: !this.isWorking && this.config.activeURL.length > 0,
+          loading: this.isWorking,
+          onPress: (): void => {
+            this.createBackup().catch((): void => {});
           }
-        }
-        .width('100%')
-        .height(48)
-        .enabled(!this.isWorking && this.config.activeURL.length > 0)
-        .fontColor(Color.White)
-        .backgroundColor(!this.isWorking && this.config.activeURL.length > 0 ?
-          $r('app.color.brand_color') : '#909399')
-        .onClick((): void => {
-          this.createBackup().catch((): void => {});
         })
 
         if (this.config.activeURL.length === 0) {
@@ -223,18 +222,17 @@ export struct BackupExportSheet {
               .fontFamily('monospace')
               .textAlign(TextAlign.Center)
               .copyOption(CopyOptions.None)
-            Button('复制 ID')
-              .width('100%')
-              .height(40)
-              .type(ButtonType.Normal)
-              .fontColor($r('app.color.brand_color'))
-              .backgroundColor('#141FDBC7')
-              .onClick((): void => this.copyBackupID())
+            AppActionButton({
+              title: '复制 ID',
+              role: AppButtonRole.Secondary,
+              onPress: (): void => this.copyBackupID()
+            })
           }
           .width('100%')
           .padding(16)
-          .backgroundColor($r('sys.color.comp_background_secondary'))
-          .borderRadius(12)
+          .backgroundColor($r('app.color.settings_card_background'))
+          .border({ width: 1, color: $r('app.color.settings_card_border') })
+          .borderRadius(18)
         }
 
         if (this.remoteStatus.length > 0) {
@@ -250,5 +248,12 @@ export struct BackupExportSheet {
     }
     .width('100%')
     .height('100%')
+    .linearGradient({
+      angle: 180,
+      colors: [
+        [$r('app.color.settings_background_top'), 0.0],
+        [$r('app.color.settings_background_bottom'), 1.0]
+      ]
+    })
   }
 }

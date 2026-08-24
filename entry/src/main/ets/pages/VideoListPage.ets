@@ -1,8 +1,10 @@
 import { Formats } from '../common/Formats';
+import { AppButtonRole } from '../common/Theme';
 import { AppConfig } from '../config/AppConfig';
 import { VideoFileInfo } from '../model/VideoLibrary';
 import { VideoListViewModel } from '../viewmodel/VideoLibraryViewModel';
 import { CachedThumbnail } from './components/CachedThumbnail';
+import { AppActionButton } from './components/AppActionButton';
 
 @ComponentV2
 export struct VideoListPage {
@@ -244,10 +246,14 @@ export struct VideoListPage {
         .fontSize(14)
         .fontColor($r('sys.color.font_secondary'))
         .textAlign(TextAlign.Center)
-      Button('重试')
-        .onClick((): void => {
+      AppActionButton({
+        title: '重试',
+        role: AppButtonRole.Secondary,
+        fill: false,
+        onPress: (): void => {
           this.viewModel.load(true).catch((): void => {});
-        })
+        }
+      })
     }
     .width('100%')
     .height('100%')
@@ -262,11 +268,13 @@ export struct VideoListPage {
         Row() {
           Blank()
           if (this.viewModel.files.length > 0) {
-            Button(this.editMode ? '完成' : '编辑')
-              .type(ButtonType.Normal)
-              .backgroundColor(Color.Transparent)
-              .fontColor($r('app.color.brand_color'))
-              .onClick((): void => this.toggleEditMode())
+            AppActionButton({
+              title: this.editMode ? '完成' : '编辑',
+              role: AppButtonRole.Secondary,
+              fill: false,
+              compact: true,
+              onPress: (): void => this.toggleEditMode()
+            })
           }
         }
         .width('100%')
@@ -314,16 +322,18 @@ export struct VideoListPage {
         })
 
         if (this.editMode) {
-          Button(`删除(${this.viewModel.selectedPaths.length})`)
-            .width('calc(100% - 32vp)')
-            .height(44)
-            .margin({ top: 8, bottom: 12 })
-            .enabled(this.viewModel.selectedPaths.length > 0)
-            .fontColor(Color.White)
-            .backgroundColor(this.viewModel.selectedPaths.length > 0 ? '#E84040' : '#909399')
-            .onClick((): void => {
-              this.confirmBatchDelete().catch((): void => {});
+          Row() {
+            AppActionButton({
+              title: `删除（${this.viewModel.selectedPaths.length}）`,
+              role: AppButtonRole.Destructive,
+              isEnabled: this.viewModel.selectedPaths.length > 0,
+              onPress: (): void => {
+                this.confirmBatchDelete().catch((): void => {});
+              }
             })
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 8, bottom: 12 })
         }
         }
         .width('100%')

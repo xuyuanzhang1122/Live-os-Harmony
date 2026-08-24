@@ -1,7 +1,9 @@
 import { ConfirmDialog } from '@kit.ArkUI';
+import { AppButtonRole } from '../common/Theme';
 import { AppConfig } from '../config/AppConfig';
 import { LiveInfo } from '../model/LiveRoom';
 import { BackupExportSheet } from './components/BackupExportSheet';
+import { AppActionButton } from './components/AppActionButton';
 import {
   AddRoomFailure,
   AddRoomsResult,
@@ -321,14 +323,14 @@ export struct RoomListPage {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
 
-      Button(room.listening === true ? '停止' : '启动')
-        .height(36)
-        .fontSize(13)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(room.listening === true ? '#D67613' : Color.White)
-        .backgroundColor(room.listening === true ? '#1AD67613' : $r('app.color.brand_color'))
-        .enabled(!this.viewModel.isRoomBusy(room.id))
-        .onClick((): void => this.toggleRoom(room))
+      AppActionButton({
+        title: room.listening === true ? '停止' : '启动',
+        role: room.listening === true ? AppButtonRole.Secondary : AppButtonRole.Primary,
+        isEnabled: !this.viewModel.isRoomBusy(room.id),
+        fill: false,
+        compact: true,
+        onPress: (): void => this.toggleRoom(room)
+      })
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
@@ -340,11 +342,15 @@ export struct RoomListPage {
       Text('暂无直播间')
         .fontSize(20)
         .fontWeight(FontWeight.Medium)
-      Text('点右上角 + 添加抖音直播间')
+      Text('点右上角添加按钮加入抖音直播间')
         .fontSize(14)
         .fontColor($r('sys.color.font_secondary'))
-      Button('添加直播间')
-        .onClick((): void => this.openAddSheet())
+      AppActionButton({
+        title: '添加直播间',
+        role: AppButtonRole.Primary,
+        fill: false,
+        onPress: (): void => this.openAddSheet()
+      })
     }
     .width('100%')
     .height('100%')
@@ -361,8 +367,12 @@ export struct RoomListPage {
         .fontSize(14)
         .fontColor($r('sys.color.font_secondary'))
         .textAlign(TextAlign.Center)
-      Button('重试')
-        .onClick((): void => this.refresh())
+      AppActionButton({
+        title: '重试',
+        role: AppButtonRole.Secondary,
+        fill: false,
+        onPress: (): void => this.refresh()
+      })
     }
     .width('100%')
     .height('100%')
@@ -374,11 +384,13 @@ export struct RoomListPage {
   private addSheet() {
     Column({ space: 16 }) {
       Row() {
-        Button('取消')
-          .type(ButtonType.Normal)
-          .fontColor($r('sys.color.font_secondary'))
-          .backgroundColor(Color.Transparent)
-          .onClick((): void => this.closeAddSheet())
+        AppActionButton({
+          title: '取消',
+          role: AppButtonRole.Plain,
+          fill: false,
+          compact: true,
+          onPress: (): void => this.closeAddSheet()
+        })
         Text('添加直播间')
           .layoutWeight(1)
           .fontSize(20)
@@ -413,16 +425,15 @@ export struct RoomListPage {
           .fontColor('#E84040')
       }
 
-      Button(this.isAdding ? '添加中…' : '添加')
-        .width('100%')
-        .height(46)
-        .enabled(!this.isAdding && this.addInput.trim().length > 0)
-        .fontColor(Color.White)
-        .backgroundColor(!this.isAdding && this.addInput.trim().length > 0 ?
-          $r('app.color.brand_color') : '#909399')
-        .onClick((): void => {
+      AppActionButton({
+        title: this.isAdding ? '添加中…' : '添加',
+        role: AppButtonRole.Primary,
+        isEnabled: !this.isAdding && this.addInput.trim().length > 0,
+        loading: this.isAdding,
+        onPress: (): void => {
           this.submitAdd().catch((): void => {});
-        })
+        }
+      })
     }
     .width('100%')
     .padding({ left: 20, right: 20, top: 20, bottom: 24 })
@@ -481,6 +492,15 @@ export struct RoomListPage {
       .onRefreshing((): void => {
         this.viewModel.manualRefresh(this.config).catch((): void => {});
       })
+      // 同一节点链式绑定多个 bindSheet 时后者会覆盖前者，
+      // 备份弹窗改挂在 Refresh 节点上，与添加弹窗（挂在 Column 上）分开宿主
+      .bindSheet(this.showBackupSheet, this.backupSheet, {
+        height: SheetSize.LARGE,
+        showClose: false,
+        onDisappear: (): void => {
+          this.showBackupSheet = false;
+        }
+      })
     }
       .width('100%')
       .height('100%')
@@ -490,13 +510,6 @@ export struct RoomListPage {
         showClose: false,
         onDisappear: (): void => {
           this.showAddSheet = false;
-        }
-      })
-      .bindSheet(this.showBackupSheet, this.backupSheet, {
-        height: SheetSize.LARGE,
-        showClose: false,
-        onDisappear: (): void => {
-          this.showBackupSheet = false;
         }
       })
     }

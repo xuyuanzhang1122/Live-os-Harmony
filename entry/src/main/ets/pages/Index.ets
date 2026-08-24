@@ -1,4 +1,5 @@
 import { Haptics } from '../common/Haptics';
+import { AppButtonRole } from '../common/Theme';
 import { AppConfig } from '../config/AppConfig';
 import { VideoFileInfo } from '../model/VideoLibrary';
 import { VideoLibraryPage, VideoListRouteParams } from './VideoLibraryPage';
@@ -14,6 +15,7 @@ import { StorageManagementPage } from './StorageManagementPage';
 import { HistoryPage } from './HistoryPage';
 import { LaunchDisplayGate } from './components/LaunchRules';
 import { LaunchView } from './components/LaunchView';
+import { AppActionButton } from './components/AppActionButton';
 
 const LAUNCH_DISPLAY_GATE: LaunchDisplayGate = new LaunchDisplayGate();
 
@@ -34,16 +36,34 @@ struct Index {
   private readonly settingsStack: NavPathStack = new NavPathStack();
 
   @Builder
-  private tabBar(title: string, index: number) {
-    Column() {
+  private tabBar(title: string, index: number, symbol: Resource) {
+    Column({ space: 2 }) {
+      SymbolGlyph(symbol)
+        .fontSize(20)
+        .fontColor([this.selectedTab === index ? '#0D8D81' : $r('sys.color.font_secondary')])
       Text(title)
-        .fontSize(14)
+        .fontSize(11)
         .fontWeight(this.selectedTab === index ? FontWeight.Medium : FontWeight.Regular)
-        .fontColor(this.selectedTab === index ? $r('app.color.brand_color') : $r('sys.color.font_secondary'))
+        .fontColor(this.selectedTab === index ? '#0D8D81' : $r('sys.color.font_secondary'))
     }
-    .width('100%')
-    .height('100%')
+    .width('92%')
+    .height(50)
     .justifyContent(FlexAlign.Center)
+    .backgroundColor(this.selectedTab === index ? '#181FDBC7' : Color.Transparent)
+    .borderRadius(16)
+  }
+
+  @Builder
+  private floatingTabBarBackground() {
+    Row()
+      .width('calc(100% - 24vp)')
+      .height(62)
+      .margin({ bottom: 8 })
+      .backgroundColor($r('app.color.settings_card_background'))
+      .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
+      .border({ width: 1, color: $r('app.color.settings_card_border') })
+      .borderRadius(22)
+      .shadow({ radius: 16, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
   }
 
   @Builder
@@ -155,35 +175,37 @@ struct Index {
   @Builder
   private unconfiguredBanner() {
     Row({ space: 10 }) {
-      Text('!')
-        .fontSize(16)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#A85D00')
-        .width(26)
-        .height(26)
-        .textAlign(TextAlign.Center)
-        .backgroundColor('#FFFFD8A8')
-        .borderRadius(13)
+      Stack() {
+        SymbolGlyph($r('sys.symbol.exclamationmark_triangle_fill'))
+          .fontSize(16)
+          .fontColor(['#A85D00'])
+      }
+      .width(30)
+      .height(30)
+      .backgroundColor('#FFFFD8A8')
+      .borderRadius(10)
       Text('未配置服务器，请前往设置')
         .layoutWeight(1)
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
-      Button('去设置')
-        .type(ButtonType.Normal)
-        .fontSize(13)
-        .fontColor($r('app.color.brand_color'))
-        .backgroundColor(Color.Transparent)
-        .onClick((): void => {
+      AppActionButton({
+        title: '去设置',
+        role: AppButtonRole.Secondary,
+        fill: false,
+        compact: true,
+        onPress: (): void => {
           this.selectedTab = 3;
-        })
+        }
+      })
     }
     .width('calc(100% - 32vp)')
     .padding({ left: 12, right: 8, top: 8, bottom: 8 })
     .margin({ top: 12 })
-    .backgroundColor($r('sys.color.comp_background_primary'))
+    .backgroundColor($r('app.color.settings_card_background'))
     .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
-    .borderRadius(14)
-    .shadow({ radius: 10, color: '#24000000', offsetY: 4 })
+    .border({ width: 1, color: $r('app.color.settings_card_border') })
+    .borderRadius(18)
+    .shadow({ radius: 12, color: $r('app.color.settings_card_shadow'), offsetY: 4 })
     .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: -72 })))
   }
 
@@ -218,37 +240,46 @@ struct Index {
           .height('100%')
           .zIndex(10)
       } else {
-        Tabs({
-          barPosition: BarPosition.End,
-          index: this.selectedTab
-        }) {
-          TabContent() {
-            this.videoLibraryTab()
-          }
-          .tabBar(this.tabBar('视频库', 0))
+        Stack({ alignContent: Alignment.Bottom }) {
+          this.floatingTabBarBackground()
 
-          TabContent() {
-            this.roomListTab()
-          }
-          .tabBar(this.tabBar('直播间', 1))
+          Tabs({
+            barPosition: BarPosition.End,
+            index: this.selectedTab
+          }) {
+            TabContent() {
+              this.videoLibraryTab()
+            }
+            .tabBar(this.tabBar('视频库', 0, $r('sys.symbol.video_fill')))
 
-          TabContent() {
-            this.historyTab()
-          }
-          .tabBar(this.tabBar('历史', 2))
+            TabContent() {
+              this.roomListTab()
+            }
+            .tabBar(this.tabBar('直播间', 1, $r('sys.symbol.dot_radiowaves_left_and_right')))
 
-          TabContent() {
-            this.settingsTab()
+            TabContent() {
+              this.historyTab()
+            }
+            .tabBar(this.tabBar('历史', 2, $r('sys.symbol.clock_fill')))
+
+            TabContent() {
+              this.settingsTab()
+            }
+            .tabBar(this.tabBar('设置', 3, $r('sys.symbol.gearshape_fill')))
           }
-          .tabBar(this.tabBar('设置', 3))
+          .width('100%')
+          .height('100%')
+          .barHeight(78)
+          .barBackgroundColor(Color.Transparent)
+          .divider(null)
+          .scrollable(false)
+          .onChange((index: number): void => {
+            this.selectedTab = index;
+            Haptics.selection();
+          })
         }
         .width('100%')
         .height('100%')
-        .barHeight(56)
-        .onChange((index: number): void => {
-          this.selectedTab = index;
-          Haptics.selection();
-        })
 
         if (this.config.activeURL.length === 0) {
           this.unconfiguredBanner()

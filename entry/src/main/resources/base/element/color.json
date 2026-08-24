@@ -7,6 +7,30 @@
     {
       "name": "start_window_background",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "settings_background_top",
+      "value": "#F2F2F7"
+    },
+    {
+      "name": "settings_background_bottom",
+      "value": "#EAF3FF"
+    },
+    {
+      "name": "settings_card_background",
+      "value": "#FAFFFFFF"
+    },
+    {
+      "name": "settings_card_border",
+      "value": "#10000000"
+    },
+    {
+      "name": "settings_card_shadow",
+      "value": "#14000000"
+    },
+    {
+      "name": "settings_input_background",
+      "value": "#EEF0F4"
     }
   ]
 }

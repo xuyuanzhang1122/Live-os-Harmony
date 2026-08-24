@@ -1,5 +1,8 @@
 import { AppConfig } from '../config/AppConfig';
+import { AppButtonRole } from '../common/Theme';
 import { validateNetworkConfig } from '../viewmodel/SettingsViewModel';
+import { AppActionButton } from './components/AppActionButton';
+import { SettingsRowIcon } from './components/SettingsRowIcon';
 
 @ComponentV2
 export struct NetworkConfigPage {
@@ -86,7 +89,7 @@ export struct NetworkConfigPage {
         .layoutWeight(1)
         .height(36)
         .type(ButtonType.Normal)
-        .fontColor(this.smartMode ? $r('sys.color.font_secondary') : Color.White)
+        .fontColor(this.smartMode ? $r('sys.color.font_secondary') : '#063D38')
         .backgroundColor(this.smartMode ? Color.Transparent : $r('app.color.brand_color'))
         .borderRadius(9)
         .onClick((): void => {
@@ -97,7 +100,7 @@ export struct NetworkConfigPage {
         .layoutWeight(1)
         .height(36)
         .type(ButtonType.Normal)
-        .fontColor(this.smartMode ? Color.White : $r('sys.color.font_secondary'))
+        .fontColor(this.smartMode ? '#063D38' : $r('sys.color.font_secondary'))
         .backgroundColor(this.smartMode ? $r('app.color.brand_color') : Color.Transparent)
         .borderRadius(9)
         .onClick((): void => {
@@ -107,8 +110,9 @@ export struct NetworkConfigPage {
     }
     .width('100%')
     .padding(3)
-    .backgroundColor($r('sys.color.comp_background_secondary'))
-    .borderRadius(12)
+    .backgroundColor($r('app.color.settings_input_background'))
+    .border({ width: 1, color: $r('app.color.settings_card_border') })
+    .borderRadius(13)
   }
 
   @Builder
@@ -118,8 +122,8 @@ export struct NetworkConfigPage {
       TextInput({ text: value, placeholder: placeholder })
         .width('100%')
         .height(46)
-        .backgroundColor($r('sys.color.comp_background_secondary'))
-        .borderRadius(10)
+        .backgroundColor($r('app.color.settings_input_background'))
+        .borderRadius(12)
         .onChange((next: string): void => {
           if (field === 0) {
             this.serverURL = next;
@@ -143,23 +147,26 @@ export struct NetworkConfigPage {
     Column({ space: 10 }) {
       Row() {
         Text('当前连接').fontSize(16).fontWeight(FontWeight.Medium).layoutWeight(1)
-        Button(this.probing ? '探测中…' : '刷新')
-          .type(ButtonType.Normal)
-          .fontSize(13)
-          .fontColor($r('app.color.brand_color'))
-          .backgroundColor(Color.Transparent)
-          .enabled(!this.probing)
-          .onClick((): void => {
+        AppActionButton({
+          title: this.probing ? '探测中' : '刷新',
+          role: AppButtonRole.Secondary,
+          isEnabled: !this.probing,
+          fill: false,
+          compact: true,
+          onPress: (): void => {
             this.refreshConnection().catch((): void => {});
-          })
+          }
+        })
       }
       Row({ space: 8 }) {
         if (this.probing) {
           LoadingProgress().width(18).height(18)
         } else if (this.config.isOnLAN) {
-          SymbolGlyph($r('sys.symbol.wifi')).fontSize(18).fontColor([$r('app.color.brand_color')])
+          SettingsRowIcon({ symbol: $r('sys.symbol.wifi'), color: '#20A66A', tileColor: '#1820A66A' })
         } else {
-          Text('🌐').fontSize(18)
+          SettingsRowIcon({
+            symbol: $r('sys.symbol.worldclock_fill_1'), color: '#3478F6', tileColor: '#183478F6'
+          })
         }
         Text(this.probing ? '正在探测局域网…' : (this.config.isOnLAN ? '局域网 LAN' : '公网'))
           .fontSize(14)
@@ -175,9 +182,11 @@ export struct NetworkConfigPage {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(16)
-    .backgroundColor($r('sys.color.comp_background_primary'))
+    .backgroundColor($r('app.color.settings_card_background'))
     .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
-    .borderRadius(14)
+    .border({ width: 1, color: $r('app.color.settings_card_border') })
+    .borderRadius(18)
+    .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
   }
 
   build() {
@@ -198,32 +207,37 @@ export struct NetworkConfigPage {
             }
             .width('100%')
             .padding(16)
-            .backgroundColor($r('sys.color.comp_background_primary'))
-            .borderRadius(14)
+            .backgroundColor($r('app.color.settings_card_background'))
+            .border({ width: 1, color: $r('app.color.settings_card_border') })
+            .borderRadius(18)
+            .shadow({ radius: 14, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
 
             if (this.smartMode) {
               this.connectionCard()
             }
 
             if (this.errorText.length > 0) {
-              Text(this.errorText)
+              Row({ space: 9 }) {
+                SymbolGlyph($r('sys.symbol.exclamationmark_triangle_fill'))
+                  .fontSize(17)
+                  .fontColor(['#E84040'])
+                Text(this.errorText).layoutWeight(1).fontSize(13).fontColor('#E84040')
+              }
                 .width('100%')
                 .padding(12)
-                .fontSize(13)
-                .fontColor('#E84040')
                 .backgroundColor('#14E84040')
-                .borderRadius(10)
+                .borderRadius(12)
             }
 
-            Button(this.saving ? '保存中…' : '保存')
-              .width('100%')
-              .height(46)
-              .fontColor(Color.White)
-              .backgroundColor($r('app.color.brand_color'))
-              .enabled(!this.saving)
-              .onClick((): void => {
+            AppActionButton({
+              title: this.saving ? '保存中…' : '保存',
+              role: AppButtonRole.Primary,
+              isEnabled: !this.saving,
+              loading: this.saving,
+              onPress: (): void => {
                 this.save().catch((): void => {});
-              })
+              }
+            })
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 16, bottom: 72 })
@@ -247,6 +261,13 @@ export struct NetworkConfigPage {
       .width('100%')
       .height('100%')
       .animation({ duration: 180, curve: Curve.EaseOut })
+      .linearGradient({
+        angle: 180,
+        colors: [
+          [$r('app.color.settings_background_top'), 0.0],
+          [$r('app.color.settings_background_bottom'), 1.0]
+        ]
+      })
     }
     .title('网络配置')
   }

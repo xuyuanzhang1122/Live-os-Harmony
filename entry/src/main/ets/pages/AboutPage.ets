@@ -1,3 +1,5 @@
+import { SettingsRowIcon } from './components/SettingsRowIcon';
+
 @ComponentV2
 export struct AboutPage {
   private readonly notes20: string[] = [
@@ -25,15 +27,17 @@ export struct AboutPage {
   @Builder
   private releaseCard(version: string, notes: string[], emphasized: boolean) {
     Row({ space: 14 }) {
-      Text(emphasized ? '✦' : '◆')
-        .width(40)
-        .height(40)
-        .fontSize(20)
-        .fontColor(emphasized ? Color.White : $r('app.color.brand_color'))
-        .textAlign(TextAlign.Center)
-        .backgroundColor(emphasized ? $r('app.color.brand_color') : '#14FF6699')
-        .borderRadius(20)
-        .alignSelf(ItemAlign.Start)
+      if (emphasized) {
+        SettingsRowIcon({
+          symbol: $r('sys.symbol.bolt'), color: '#063D38', tileColor: $r('app.color.brand_color'), dimension: 42
+        })
+          .alignSelf(ItemAlign.Start)
+      } else {
+        SettingsRowIcon({
+          symbol: $r('sys.symbol.star_fill'), color: '#0D8D81', tileColor: '#181FDBC7', dimension: 42
+        })
+          .alignSelf(ItemAlign.Start)
+      }
       Column({ space: 9 }) {
         Text(version)
           .fontSize(emphasized ? 21 : 18)
@@ -61,9 +65,10 @@ export struct AboutPage {
     .width('100%')
     .alignItems(VerticalAlign.Top)
     .padding(18)
-    .backgroundColor($r('sys.color.comp_background_primary'))
-    .borderRadius(14)
-    .shadow(emphasized ? { radius: 9, color: '#16000000', offsetY: 3 } : { radius: 0, color: Color.Transparent })
+    .backgroundColor($r('app.color.settings_card_background'))
+    .border({ width: 1, color: emphasized ? '#401FDBC7' : $r('app.color.settings_card_border') })
+    .borderRadius(18)
+    .shadow({ radius: emphasized ? 14 : 8, color: $r('app.color.settings_card_shadow'), offsetY: 5 })
   }
 
   build() {
@@ -97,7 +102,14 @@ export struct AboutPage {
       .width('100%')
       .height('100%')
       .justifyContent(FlexAlign.Center)
+      .linearGradient({
+        angle: 180,
+        colors: [
+          [$r('app.color.settings_background_top'), 0.0],
+          [$r('app.color.settings_background_bottom'), 1.0]
+        ]
+      })
     }
-    .title('关于')
+    .title('版本信息')
   }
 }

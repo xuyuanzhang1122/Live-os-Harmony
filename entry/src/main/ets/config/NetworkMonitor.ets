@@ -44,11 +44,27 @@ export class NetworkMonitor {
   }
 
   static async probeLanReachable(lanURL: string, apiKey: string): Promise<boolean> {
+    if (!(await NetworkMonitor.hasLANBearer())) {
+      return false;
+    }
     if (await NetworkMonitor.probeOnce(lanURL, apiKey)) {
       return true;
     }
     await NetworkMonitor.delay(500);
     return NetworkMonitor.probeOnce(lanURL, apiKey);
+  }
+
+  /// 蜂窝或无网络时局域网地址必然不可达，直接跳过探测
+  private static async hasLANBearer(): Promise<boolean> {
+    try {
+      const handle: connection.NetHandle = await connection.getDefaultNet();
+      const caps: connection.NetCapabilities = await connection.getNetCapabilities(handle);
+      const bearers: Array<connection.NetBearType> = caps.bearerTypes;
+      return bearers.includes(connection.NetBearType.BEARER_WIFI) ||
+        bearers.includes(connection.NetBearType.BEARER_ETHERNET);
+    } catch (_) {
+      return false;
+    }
   }
 
   private static async probeOnce(lanURL: string, apiKey: string): Promise<boolean> {
@@ -62,7 +78,7 @@ export class NetworkMonitor {
       headers.Authorization = `Bearer ${apiKey}`;
     }
     const options: http.HttpRequestOptions = {
-      method: http.RequestMethod.HEAD,
+      method: http.RequestMethod.GET,
       header: headers,
       connectTimeout: 2000,
       readTimeout: 2000,
@@ -70,7 +86,9 @@ export class NetworkMonitor {
     };
     try {
       const response: http.HttpResponse = await request.request(`${base}/api/info`, options);
-      return response.responseCode >= 200 && response.responseCode < 400;
+      // 收到任何 HTTP 状态码（含 401/404/405）都说明服务器可达；
+      // 只有请求本身抛错（超时、无路由）才视为不可达
+      return response.responseCode > 0;
     } catch (_) {
       return false;
     } finally {
