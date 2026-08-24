@@ -37,6 +37,10 @@ export function apiKeySummary(localKey: string, keySuffix: string | null): strin
   return `已配置（••••${tail}）`;
 }
 
+export function apiKeySummaryNeedsReload(apiKeyBound: boolean, summary: string): boolean {
+  return apiKeyBound && summary.indexOf('••••') < 0;
+}
+
 export function apiKeyValidationError(error: Object): string {
   if (error instanceof ApiError && (error.type === ApiErrorType.UNAUTHORIZED ||
     error.statusCode === 401 || error.statusCode === 403)) {

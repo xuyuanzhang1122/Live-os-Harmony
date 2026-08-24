@@ -439,7 +439,8 @@ export struct RoomListPage {
   }
 
   build() {
-    Column() {
+    Row() {
+      Column() {
       this.pageToolbar()
       Refresh({ refreshing: this.viewModel.isRefreshing }) {
         if (this.viewModel.isLoading && this.viewModel.rooms.length === 0) {
@@ -481,21 +482,26 @@ export struct RoomListPage {
         this.viewModel.manualRefresh(this.config).catch((): void => {});
       })
     }
+      .width('100%')
+      .height('100%')
+      .constraintSize({ maxWidth: 960 })
+      .bindSheet(this.showAddSheet, this.addSheet, {
+        height: SheetSize.MEDIUM,
+        showClose: false,
+        onDisappear: (): void => {
+          this.showAddSheet = false;
+        }
+      })
+      .bindSheet(this.showBackupSheet, this.backupSheet, {
+        height: SheetSize.LARGE,
+        showClose: false,
+        onDisappear: (): void => {
+          this.showBackupSheet = false;
+        }
+      })
+    }
     .width('100%')
     .height('100%')
-    .bindSheet(this.showAddSheet, this.addSheet, {
-      height: SheetSize.MEDIUM,
-      showClose: false,
-      onDisappear: (): void => {
-        this.showAddSheet = false;
-      }
-    })
-    .bindSheet(this.showBackupSheet, this.backupSheet, {
-      height: SheetSize.LARGE,
-      showClose: false,
-      onDisappear: (): void => {
-        this.showBackupSheet = false;
-      }
-    })
+    .justifyContent(FlexAlign.Center)
   }
 }

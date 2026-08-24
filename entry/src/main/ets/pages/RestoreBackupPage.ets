@@ -272,8 +272,9 @@ export struct RestoreBackupPage {
 
   build() {
     NavDestination() {
-      Scroll() {
-        Column({ space: 20 }) {
+      Row() {
+        Scroll() {
+          Column({ space: 20 }) {
           this.modePicker()
           Column() {
             if (this.selectedMode === 0) {
@@ -325,13 +326,18 @@ export struct RestoreBackupPage {
             .width('100%')
             .fontSize(12)
             .fontColor($r('sys.color.font_secondary'))
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 16, bottom: 32 })
+          .alignItems(HorizontalAlign.Start)
         }
         .width('100%')
-        .padding({ left: 16, right: 16, top: 16, bottom: 32 })
-        .alignItems(HorizontalAlign.Start)
+        .height('100%')
+        .constraintSize({ maxWidth: 960 })
       }
       .width('100%')
       .height('100%')
+      .justifyContent(FlexAlign.Center)
     }
     .title('恢复备份')
     .onReady((context: NavDestinationContext): void => {

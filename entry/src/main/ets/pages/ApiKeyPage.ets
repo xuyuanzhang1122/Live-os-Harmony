@@ -172,7 +172,7 @@ export struct ApiKeyPage {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(18)
-    .backgroundColor('#CCFFFFFF')
+    .backgroundColor($r('sys.color.comp_background_primary'))
     .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
     .borderRadius(16)
     .shadow({ radius: 12, color: '#18000000', offsetY: 4 })
@@ -224,8 +224,9 @@ export struct ApiKeyPage {
 
   build() {
     NavDestination() {
-      Scroll() {
-        Column({ space: 18 }) {
+      Row() {
+        Scroll() {
+          Column({ space: 18 }) {
           if (this.loadingSaved) {
             Row({ space: 10 }) {
               LoadingProgress().width(22).height(22)
@@ -267,12 +268,17 @@ export struct ApiKeyPage {
               .backgroundColor('#14E84040')
               .borderRadius(10)
           }
+          }
+          .width('100%')
+          .padding(16)
         }
         .width('100%')
-        .padding(16)
+        .height('100%')
+        .constraintSize({ maxWidth: 960 })
       }
       .width('100%')
       .height('100%')
+      .justifyContent(FlexAlign.Center)
     }
     .title('API Key')
   }

@@ -202,7 +202,7 @@ export struct VideoListPage {
               .layoutWeight(1)
               .height(4)
               .color($r('app.color.brand_color'))
-              .backgroundColor('#22000000')
+              .backgroundColor($r('sys.color.comp_background_secondary'))
             Text(`已看 ${progressPercent}%`)
               .fontSize(11)
               .fontColor($r('app.color.brand_color'))
@@ -257,7 +257,7 @@ export struct VideoListPage {
 
   build() {
     NavDestination() {
-      Stack() {
+      Stack({ alignContent: Alignment.Center }) {
         Column() {
         Row() {
           Blank()
@@ -328,6 +328,7 @@ export struct VideoListPage {
         }
         .width('100%')
         .height('100%')
+        .constraintSize({ maxWidth: 960 })
       }
       .width('100%')
       .height('100%')

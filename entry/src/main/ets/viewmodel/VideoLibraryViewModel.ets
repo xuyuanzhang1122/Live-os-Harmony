@@ -11,6 +11,7 @@ const GRID_MIN_COLUMN_WIDTH: number = 160;
 const GRID_MAX_COLUMN_WIDTH: number = 300;
 const GRID_TARGET_COLUMN_WIDTH: number = 180;
 export const MINIMUM_LIBRARY_GRID_WIDTH: number = 352;
+export const MAXIMUM_LIBRARY_GRID_WIDTH: number = 1580;
 
 export function calculateLibraryColumns(width: number): number {
   const constrainedWidth: number = Math.max(MINIMUM_LIBRARY_GRID_WIDTH, width);
@@ -23,7 +24,7 @@ export function calculateLibraryColumns(width: number): number {
   if (maximumForMinWidth < 2) {
     return 2;
   }
-  return Math.max(2, Math.min(maximumForMinWidth, Math.max(minimumForMaxWidth, target)));
+  return Math.max(2, Math.min(5, Math.min(maximumForMinWidth, Math.max(minimumForMaxWidth, target))));
 }
 
 export function historyProgressPercent(positionSeconds: number, durationSeconds: number): number {

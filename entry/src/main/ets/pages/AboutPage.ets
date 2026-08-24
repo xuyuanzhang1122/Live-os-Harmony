@@ -68,29 +68,35 @@ export struct AboutPage {
 
   build() {
     NavDestination() {
-      List({ space: 14 }) {
-        ListItem() {
-          Column({ space: 4 }) {
-            Text('Live OS').fontSize(26).fontWeight(FontWeight.Bold)
-            Text('版本 2.0.0').fontSize(14).fontColor($r('sys.color.font_secondary'))
+      Row() {
+        List({ space: 14 }) {
+          ListItem() {
+            Column({ space: 4 }) {
+              Text('Live OS').fontSize(26).fontWeight(FontWeight.Bold)
+              Text('版本 2.0.0').fontSize(14).fontColor($r('sys.color.font_secondary'))
+            }
+            .width('100%')
+            .padding({ top: 12, bottom: 10 })
           }
-          .width('100%')
-          .padding({ top: 12, bottom: 10 })
+          ListItem() {
+            this.releaseCard('2.0', this.notes20, true)
+          }
+          ListItem() {
+            this.releaseCard('1.2', this.notes12, false)
+          }
+          ListItem() {
+            this.releaseCard('1.1', this.notes11, false)
+          }
         }
-        ListItem() {
-          this.releaseCard('2.0', this.notes20, true)
-        }
-        ListItem() {
-          this.releaseCard('1.2', this.notes12, false)
-        }
-        ListItem() {
-          this.releaseCard('1.1', this.notes11, false)
-        }
+        .width('100%')
+        .height('100%')
+        .constraintSize({ maxWidth: 960 })
+        .padding({ left: 16, right: 16, bottom: 24 })
+        .edgeEffect(EdgeEffect.Spring)
       }
       .width('100%')
       .height('100%')
-      .padding({ left: 16, right: 16, bottom: 24 })
-      .edgeEffect(EdgeEffect.Spring)
+      .justifyContent(FlexAlign.Center)
     }
     .title('关于')
   }

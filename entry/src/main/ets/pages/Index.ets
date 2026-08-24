@@ -12,6 +12,10 @@ import { RoomListPage } from './RoomListPage';
 import { SettingsPage } from './SettingsPage';
 import { StorageManagementPage } from './StorageManagementPage';
 import { HistoryPage } from './HistoryPage';
+import { LaunchDisplayGate } from './components/LaunchRules';
+import { LaunchView } from './components/LaunchView';
+
+const LAUNCH_DISPLAY_GATE: LaunchDisplayGate = new LaunchDisplayGate();
 
 @Entry
 @ComponentV2
@@ -21,6 +25,7 @@ struct Index {
   @Local private videoListVisible: boolean = false;
   @Local private activePlayerFile: VideoFileInfo | null = null;
   @Local private settingsRefreshToken: number = 0;
+  @Local private showLaunch: boolean = LAUNCH_DISPLAY_GATE.consume();
   private playerShutdownHandler: PlayerShutdownHandler | null = null;
 
   private readonly videoLibraryStack: NavPathStack = new NavPathStack();
@@ -175,7 +180,7 @@ struct Index {
     .width('calc(100% - 32vp)')
     .padding({ left: 12, right: 8, top: 8, bottom: 8 })
     .margin({ top: 12 })
-    .backgroundColor('#CCFFFFFF')
+    .backgroundColor($r('sys.color.comp_background_primary'))
     .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
     .borderRadius(14)
     .shadow({ radius: 10, color: '#24000000', offsetY: 4 })
@@ -248,6 +253,17 @@ struct Index {
         if (this.config.activeURL.length === 0) {
           this.unconfiguredBanner()
         }
+      }
+
+      if (this.showLaunch) {
+        LaunchView({
+          onComplete: (): void => {
+            this.showLaunch = false;
+          }
+        })
+          .width('100%')
+          .height('100%')
+          .zIndex(100)
       }
     }
     .width('100%')

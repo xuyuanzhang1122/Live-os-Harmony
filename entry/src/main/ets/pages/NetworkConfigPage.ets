@@ -175,7 +175,7 @@ export struct NetworkConfigPage {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(16)
-    .backgroundColor('#CCFFFFFF')
+    .backgroundColor($r('sys.color.comp_background_primary'))
     .backgroundBlurStyle(BlurStyle.BACKGROUND_THIN)
     .borderRadius(14)
   }
@@ -230,6 +230,7 @@ export struct NetworkConfigPage {
         }
         .width('100%')
         .height('100%')
+        .constraintSize({ maxWidth: 960 })
 
         if (this.savedVisible) {
           Text('已保存')

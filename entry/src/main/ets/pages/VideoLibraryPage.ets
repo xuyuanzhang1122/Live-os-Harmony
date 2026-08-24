@@ -3,6 +3,7 @@ import { AppConfig } from '../config/AppConfig';
 import { VideoRoomInfo } from '../model/VideoLibrary';
 import {
   calculateLibraryColumns,
+  MAXIMUM_LIBRARY_GRID_WIDTH,
   MINIMUM_LIBRARY_GRID_WIDTH,
   VideoLibraryViewModel
 } from '../viewmodel/VideoLibraryViewModel';
@@ -192,19 +193,25 @@ export struct VideoLibraryPage {
         this.emptyState()
       } else {
         Scroll() {
-          Grid() {
-            ForEach(this.viewModel.rooms, (room: VideoRoomInfo): void => {
-              GridItem() {
-                this.roomCard(room)
-              }
-            }, (room: VideoRoomInfo): string => room.folder_path)
+          Row() {
+            Grid() {
+              ForEach(this.viewModel.rooms, (room: VideoRoomInfo): void => {
+                GridItem() {
+                  this.roomCard(room)
+                }
+              }, (room: VideoRoomInfo): string => room.folder_path)
+            }
+            .columnsTemplate(`repeat(${this.columns}, 1fr)`)
+            .columnsGap(16)
+            .rowsGap(16)
+            .padding({ left: 8, right: 8, top: 12, bottom: 20 })
+            .width(Math.min(Math.max(this.availableWidth, MINIMUM_LIBRARY_GRID_WIDTH),
+              MAXIMUM_LIBRARY_GRID_WIDTH))
+            .height('100%')
           }
-          .columnsTemplate(`repeat(${this.columns}, 1fr)`)
-          .columnsGap(16)
-          .rowsGap(16)
-          .padding({ left: 8, right: 8, top: 12, bottom: 20 })
           .width(Math.max(this.availableWidth, MINIMUM_LIBRARY_GRID_WIDTH))
           .height('100%')
+          .justifyContent(FlexAlign.Center)
         }
         .width('100%')
         .height('100%')

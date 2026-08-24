@@ -1201,7 +1201,7 @@ export struct PlayerPage {
         Column().width(14).height(14).borderRadius(7)
           .backgroundColor($r('app.color.brand_color')).translate({ x: this.thumbOffset() })
       }
-      .layoutWeight(1).height(34).enabled(this.duration > 0)
+      .layoutWeight(1).height(44).enabled(this.duration > 0)
       .onAreaChange((_oldArea: Area, newArea: Area): void => {
         this.timelineWidth = Number(newArea.width);
       })
@@ -1247,7 +1247,7 @@ export struct PlayerPage {
           Text(Formats.formatBytes(this.file.size)).width('100%').fontSize(12).fontColor('#B8FFFFFF')
         }
         .layoutWeight(1).alignItems(HorizontalAlign.Start)
-        Button('画中画').height(38).fontSize(12).fontColor(Color.White).backgroundColor('#33000000')
+        Button('画中画').height(44).fontSize(12).fontColor(Color.White).backgroundColor('#33000000')
           .hitTestBehavior(HitTestMode.Block)
           .onClick((): void => {
             this.startPiP().catch((): void => {});
@@ -1275,7 +1275,7 @@ export struct PlayerPage {
             this.togglePlayback('button').catch((): void => {});
           })
           Blank()
-          Button(Formats.formatSpeedLabel(this.playbackRate)).height(40).fontSize(13)
+          Button(Formats.formatSpeedLabel(this.playbackRate)).height(44).fontSize(13)
             .fontColor(Color.White).backgroundColor('#33000000').enabled(this.duration > 0)
             .hitTestBehavior(HitTestMode.Block).bindMenu(this.speedMenu)
         }

@@ -4,6 +4,7 @@ import task1InfrastructureTest from './Task1Infrastructure.test';
 import task3PlayerTest from './Task3Player.test';
 import task5RoomHistoryTest from './Task5RoomHistory.test';
 import task7BackupTest from './Task7Backup.test';
+import task8PolishTest from './Task8Polish.test';
 
 export default function listTest(): void {
   describe('Task0Skeleton', (): void => {
@@ -19,4 +20,5 @@ export default function listTest(): void {
   task3PlayerTest();
   task5RoomHistoryTest();
   task7BackupTest();
+  task8PolishTest();
 }

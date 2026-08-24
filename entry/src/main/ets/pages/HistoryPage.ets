@@ -189,7 +189,7 @@ export struct HistoryPage {
           .width('100%')
           .height(4)
           .color($r('app.color.brand_color'))
-          .backgroundColor('#22000000')
+          .backgroundColor($r('sys.color.comp_background_secondary'))
       }
       .layoutWeight(1)
       .height(78.75)
@@ -208,7 +208,8 @@ export struct HistoryPage {
   }
 
   build() {
-    Refresh({ refreshing: this.viewModel.isRefreshing }) {
+    Row() {
+      Refresh({ refreshing: this.viewModel.isRefreshing }) {
       if (!this.config.apiKeyBound) {
         this.unboundState()
       } else if (this.viewModel.isLoading && this.viewModel.entries.length === 0) {
@@ -237,10 +238,15 @@ export struct HistoryPage {
         .edgeEffect(EdgeEffect.Spring)
       }
     }
+      .width('100%')
+      .height('100%')
+      .constraintSize({ maxWidth: 960 })
+      .onRefreshing((): void => {
+        this.manualRefresh().catch((): void => {});
+      })
+    }
     .width('100%')
     .height('100%')
-    .onRefreshing((): void => {
-      this.manualRefresh().catch((): void => {});
-    })
+    .justifyContent(FlexAlign.Center)
   }
 }

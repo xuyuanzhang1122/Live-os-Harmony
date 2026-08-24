@@ -3,7 +3,7 @@ import { ApiCache } from '../net/ApiCache';
 import { ThumbnailCache } from '../cache/ThumbnailCache';
 import { AppConfig } from '../config/AppConfig';
 import { ServerInfo } from '../model/Common';
-import { apiKeySummary, totalCacheBytes } from '../viewmodel/SettingsViewModel';
+import { apiKeySummary, apiKeySummaryNeedsReload, totalCacheBytes } from '../viewmodel/SettingsViewModel';
 
 const GITHUB_URL: string = 'https://github.com/xuyuanzhang1122/bililive-harmony';
 
@@ -36,15 +36,18 @@ export struct SettingsPage {
     this.reloadSummaries();
   }
 
+  @Monitor('config.apiKeyBound')
+  onApiKeyBoundChanged(_monitor: IMonitor): void {
+    if (apiKeySummaryNeedsReload(this.config.apiKeyBound, this.keyText)) {
+      this.reloadApiKeySummary();
+    }
+  }
+
   private reloadSummaries(): void {
     this.backupInput = this.config.backupServerURL;
     const total: number = totalCacheBytes(ApiCache.getInstance().sizeBytes(), ThumbnailCache.getInstance().sizeBytes());
     this.cacheText = `已用 ${(total / 1024 / 1024).toFixed(1)} MB`;
-    this.config.getApiKey().then((key: string): void => {
-      this.keyText = apiKeySummary(key, null);
-    }).catch((): void => {
-      this.keyText = this.config.apiKeyBound ? '已配置' : '未设置';
-    });
+    this.reloadApiKeySummary();
     if (this.config.serverInfo === null) {
       this.connectionText = '未测试';
       this.connectionFailed = false;
@@ -52,6 +55,14 @@ export struct SettingsPage {
       this.connectionText = `${this.config.serverInfo.app_name} ${this.config.serverInfo.app_version}`;
       this.connectionFailed = false;
     }
+  }
+
+  private reloadApiKeySummary(): void {
+    this.config.getApiKey().then((key: string): void => {
+      this.keyText = apiKeySummary(key, null);
+    }).catch((): void => {
+      this.keyText = this.config.apiKeyBound ? '已配置' : '未设置';
+    });
   }
 
   private networkSubtitle(): string {
@@ -232,7 +243,8 @@ export struct SettingsPage {
   }
 
   build() {
-    List({ space: 18 }) {
+    Row() {
+      List({ space: 18 }) {
       ListItem() {
         Column() {
           this.groupTitle('服务器')
@@ -307,9 +319,14 @@ export struct SettingsPage {
         }
       }
     }
+      .width('100%')
+      .height('100%')
+      .constraintSize({ maxWidth: 960 })
+      .padding({ left: 12, right: 12, top: 12, bottom: 28 })
+      .edgeEffect(EdgeEffect.Spring)
+    }
     .width('100%')
     .height('100%')
-    .padding({ left: 12, right: 12, top: 12, bottom: 28 })
-    .edgeEffect(EdgeEffect.Spring)
+    .justifyContent(FlexAlign.Center)
   }
 }
