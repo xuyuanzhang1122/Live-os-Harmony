@@ -201,7 +201,9 @@ export struct HistoryPage {
     .backgroundColor($r('sys.color.comp_background_primary'))
     .borderRadius(14)
     .shadow({ radius: 8, color: '#16000000', offsetY: 3 })
-    .bindMenu(this.historyMenu(entry))
+    // bindMenu 是点击触发（与卡片 onClick 冲突且长按无响应）；长按上下文菜单必须用
+    // bindContextMenu + ResponseType.LongPress（API 11+，兼容 API 12）。
+    .bindContextMenu(this.historyMenu(entry), ResponseType.LongPress)
     .onClick((): void => this.openPlayer(entry))
   }
 
