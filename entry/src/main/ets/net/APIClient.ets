@@ -1,5 +1,5 @@
 import { http } from '@kit.NetworkKit';
-import { ApiError, APIKeyUser, ResolveURLResult, ServerInfo } from '../model/Common';
+import { ApiError, APIKeyUser, PlaybackResolveResult, ResolveURLResult, ServerInfo } from '../model/Common';
 import { AddLiveRequest, LiveInfo } from '../model/LiveRoom';
 import { VideoFileInfo, VideoFileInfoInit, VideoRoomInfo, VideoRoomInfoInit } from '../model/VideoLibrary';
 import { WatchHistoryEntry } from '../model/HistoryEntry';
@@ -214,6 +214,11 @@ export class APIClient {
     const result: ResolveURLResult = await this.request<ResolveURLResult>('GET',
       `/api/resolve-url?url=${encodeURIComponent(raw)}`);
     return result.url;
+  }
+
+  async resolvePlayback(relPath: string): Promise<PlaybackResolveResult> {
+    return this.request<PlaybackResolveResult>('GET',
+      `/api/playback/resolve/${APIClient.encodePathSegments(relPath)}`);
   }
 
   async getVideoLibrary(): Promise<VideoRoomInfo[]> {

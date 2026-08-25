@@ -91,3 +91,13 @@ export interface APIKeyUser {
 export interface ResolveURLResult {
   url: string;
 }
+
+export interface PlaybackResolveResult {
+  status: string;
+  protocol?: string;
+  mime_type?: string;
+  url?: string;
+  expires_at?: number;
+  error?: string;
+  retry_after_seconds?: number;
+}

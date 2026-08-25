@@ -96,7 +96,9 @@ export struct PlayerPage {
   private readonly tracker: ProgressTracker = new ProgressTracker(this.controller);
   private readonly config: AppConfig = AppConfig.getInstance();
   private readonly surfaceController: XComponentController = new XComponentController();
+  private surfaceId: string = '';
   private playbackURL: string = '';
+  private playbackResolveTask: Promise<void> | null = null;
   private dragTarget: number = 0;
   private setupStarted: boolean = false;
   private shutdownStarted: boolean = false;
@@ -135,9 +137,9 @@ export struct PlayerPage {
     this.shutdownStarted = false;
     this.shutdownTask = null;
     this.setupStarted = false;
+    this.playbackResolveTask = this.resolvePlaybackURL(this.lifecycleToken);
     this.bindPlayerCallbacks(this.lifecycleToken);
     this.onShutdownReady((reason: string): Promise<void> => this.shutdownPlayer(reason));
-    this.resolveURLs();
     this.tracker.start();
     this.startPlaybackSampler();
     this.startHistoryTimer();
@@ -260,6 +262,54 @@ export struct PlayerPage {
     task();
   }
 
+  private async resolvePlaybackURL(token: number): Promise<void> {
+    const client: APIClient = this.config.getClient();
+    const hasDirectURL: boolean = (this.file.hls_url?.length ?? 0) > 0 ||
+      (this.file.file_url?.length ?? 0) > 0;
+    if (this.file.rel_path.trim().length === 0 && !hasDirectURL) {
+      this.errorText = playbackErrorText(this.file.playback_status);
+      this.chromeVisible = false;
+      this.isResumeSettled = true;
+      this.playbackResolveTask = null;
+      return;
+    }
+    try {
+      while (this.isLifecycleActive(token)) {
+        const result = await client.resolvePlayback(this.file.rel_path);
+        if (!this.isLifecycleActive(token)) return;
+        if (result.status === 'ready' && typeof result.url === 'string' && result.url.length > 0) {
+          this.playbackURL = result.url;
+          this.errorText = '';
+          const thumbnail: string = APIClient.buildThumbnailUrl(client.baseURL, client.apiKey, this.file);
+          this.thumbnailURL = /^https?:\/\//i.test(thumbnail) ? thumbnail : '';
+          this.playbackResolveTask = null;
+          if (this.surfaceId.length > 0) {
+            this.setupPlayer(this.surfaceId);
+          }
+          return;
+        }
+        if (result.status === 'recording' || result.status === 'failed') {
+          this.errorText = result.error ?? playbackErrorText(this.file.playback_status);
+          this.chromeVisible = false;
+          this.isResumeSettled = true;
+          this.playbackResolveTask = null;
+          return;
+        }
+        await delay(Math.max(1000, (result.retry_after_seconds ?? 2) * 1000));
+      }
+    } catch (_) {
+      if (!this.isLifecycleActive(token)) return;
+      // 兼容旧服务端：解析接口不可用时沿用列表接口生成的播放地址。
+      this.playbackURL = APIClient.buildPlaybackUrl(client.baseURL, client.apiKey, this.file);
+      if (!/^https?:\/\//i.test(this.playbackURL)) {
+        this.errorText = playbackErrorText(this.file.playback_status);
+        this.chromeVisible = false;
+        this.isResumeSettled = true;
+      }
+      this.playbackResolveTask = null;
+    }
+  }
+
   private resolveURLs(): void {
     const client: APIClient = this.config.getClient();
     const hasDirectURL: boolean = (this.file.hls_url?.length ?? 0) > 0 ||
@@ -282,8 +332,9 @@ export struct PlayerPage {
   }
 
   private setupPlayer(surfaceId: string): void {
+    this.surfaceId = surfaceId;
     if (this.shutdownStarted || this.setupStarted || this.errorText.length > 0 ||
-      this.playbackURL.length === 0) {
+      this.playbackURL.length === 0 || this.playbackResolveTask !== null) {
       return;
     }
     this.setupStarted = true;
