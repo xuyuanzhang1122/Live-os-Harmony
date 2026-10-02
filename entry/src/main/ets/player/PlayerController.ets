@@ -137,13 +137,18 @@ class HarmonyPlayerAdapter implements PlayerAdapter {
   get currentTime(): number { return this.player.currentTime; }
   get state(): PlayerState { return this.player.state; }
 
+  setPreparedScale(): void {
+    // SDK 定义：VIDEO_SCALE_TYPE_FIT（默认值）不保持宽高比，拉伸铺满 surface；
+    // 等比留黑边的 SCALED_ASPECT 需 API 20。API 12 纪律下由页面按 videoSizeChange
+    // 上报的宽高比布局 XComponent，surface 比例与视频一致时 FIT 拉伸无可感知形变。
+    this.player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
+  }
+
   async prepare(): Promise<void> {
     try {
+      // prepare() 的 Promise 可能早于真实 prepared 状态返回；缩放属性必须在
+      // prepared 后设置，否则真机会以 5400102 拒绝仍处于初始化阶段的操作。
       await this.player.prepare();
-      // SDK 定义：VIDEO_SCALE_TYPE_FIT（默认值）不保持宽高比，拉伸铺满 surface；
-      // 等比留黑边的 SCALED_ASPECT 需 API 20。API 12 纪律下由页面按 videoSizeChange
-      // 上报的宽高比布局 XComponent，surface 比例与视频一致时 FIT 拉伸无可感知形变。
-      this.player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
     } catch (error) {
       throw toPlayerOperationError(error);
     }
@@ -328,6 +333,9 @@ export class PlayerController implements ProgressSource {
   private lifecycleToken: number = 0;
   private initializedWaitResolve: (() => void) | null = null;
   private initializedWaitReject: ((error: Error) => void) | null = null;
+  private preparedWaitResolve: (() => void) | null = null;
+  private preparedWaitReject: ((error: Error) => void) | null = null;
+  private preparedWaitTimer: number | null = null;
 
   constructor(factory: PlayerAdapterFactory = createHarmonyPlayerAdapter) {
     this.factory = factory;
@@ -401,7 +409,20 @@ export class PlayerController implements ProgressSource {
       diag(`initialized ready, state=${player.state}`);
       player.surfaceId = surfaceId;
       diag(`surfaceId set, state=${player.state}`);
-      await player.prepare();
+      // 原生 prepare Promise 可能提前返回。先建立 prepared 等待，再调用 prepare，
+      // 确保异步状态事件不会在等待器建立前到达。
+      const preparedWait: Promise<void> = this.waitForPrepared(player, 30000);
+      let prepareError: Object | null = null;
+      try {
+        await player.prepare();
+      } catch (error) {
+        prepareError = error;
+      }
+      if (prepareError !== null) {
+        this.cancelPreparedWait();
+        throw prepareError;
+      }
+      await preparedWait;
       diag(`prepare done, state=${player.state}, durationMs=${player.duration}`);
       if (token !== this.lifecycleToken) {
         await this.release();
@@ -503,6 +524,8 @@ export class PlayerController implements ProgressSource {
 
   release(): Promise<void> {
     this.lifecycleToken += 1;
+    this.cancelInitializedWait();
+    this.cancelPreparedWait();
     if (this.releaseTask !== null) {
       return this.releaseTask;
     }
@@ -571,6 +594,24 @@ export class PlayerController implements ProgressSource {
     } else if (state === 'error' && this.initializedWaitReject !== null) {
       this.initializedWaitReject(new Error('player entered error state while initializing'));
     }
+    if (state === 'prepared') {
+      if (this.player !== null) {
+        try {
+          // API 12 下只能使用 FIT；此时原生播放器已经真正 prepared。
+          const adapter: PlayerAdapter = this.player;
+          if (adapter instanceof HarmonyPlayerAdapter) {
+            adapter.setPreparedScale();
+          }
+        } catch (error) {
+          diag(`prepared scale setup failed: ${error}`);
+        }
+      }
+      if (this.preparedWaitResolve !== null) {
+        this.preparedWaitResolve();
+      }
+    } else if (state === 'error' && this.preparedWaitReject !== null) {
+      this.preparedWaitReject(new Error('player entered error state while preparing'));
+    }
     if (state === 'prepared' && this.player !== null) {
       this.publishDuration(this.player.duration);
     }
@@ -580,6 +621,12 @@ export class PlayerController implements ProgressSource {
   private handleError: PlayerErrorHandler = (code: number, message: string): void => {
     diag(`error code=${code} message=${message}`);
     this.cachedState = 'error';
+    if (this.initializedWaitReject !== null) {
+      this.initializedWaitReject(new Error(message));
+    }
+    if (this.preparedWaitReject !== null) {
+      this.preparedWaitReject(new Error(message));
+    }
     this.onStateChange('error');
     this.onError(code, message);
   };
@@ -659,6 +706,59 @@ export class PlayerController implements ProgressSource {
     const code: number = Number.isFinite(businessError.code) ? businessError.code : -1;
     const message: string = businessError.message?.length > 0 ? businessError.message : `${error}`;
     this.reportError(code, message);
+  }
+
+  private waitForPrepared(player: PlayerAdapter, timeoutMs: number): Promise<void> {
+    if (player.state === 'prepared') {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve: () => void, reject: (error: Error) => void): void => {
+      this.preparedWaitTimer = setTimeout((): void => {
+        this.preparedWaitResolve = null;
+        this.preparedWaitReject = null;
+        this.preparedWaitTimer = null;
+        reject(new Error(`timeout after ${timeoutMs}ms waiting for prepared state`));
+      }, timeoutMs);
+      this.preparedWaitResolve = (): void => {
+        if (this.preparedWaitTimer !== null) {
+          clearTimeout(this.preparedWaitTimer);
+        }
+        this.preparedWaitResolve = null;
+        this.preparedWaitReject = null;
+        this.preparedWaitTimer = null;
+        resolve();
+      };
+      this.preparedWaitReject = (error: Error): void => {
+        if (this.preparedWaitTimer !== null) {
+          clearTimeout(this.preparedWaitTimer);
+        }
+        this.preparedWaitResolve = null;
+        this.preparedWaitReject = null;
+        this.preparedWaitTimer = null;
+        reject(error);
+      };
+    });
+  }
+
+  private cancelPreparedWait(): void {
+    const reject: ((error: Error) => void) | null = this.preparedWaitReject;
+    if (reject !== null) {
+      reject(new Error('player setup cancelled while waiting for prepared state'));
+      return;
+    }
+    if (this.preparedWaitTimer !== null) {
+      clearTimeout(this.preparedWaitTimer);
+    }
+    this.preparedWaitTimer = null;
+    this.preparedWaitResolve = null;
+    this.preparedWaitReject = null;
+  }
+
+  private cancelInitializedWait(): void {
+    const reject: ((error: Error) => void) | null = this.initializedWaitReject;
+    if (reject !== null) {
+      reject(new Error('player setup cancelled while waiting for initialized state'));
+    }
   }
 
   private waitForInitialized(player: PlayerAdapter, timeoutMs: number): Promise<void> {

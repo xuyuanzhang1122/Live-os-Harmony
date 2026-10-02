@@ -91,6 +91,10 @@ class FakePlayerAdapter implements PlayerAdapter {
     this.stateHandler(state);
   }
 
+  emitState(state: PlayerState): void {
+    this.become(state);
+  }
+
   async prepare(): Promise<void> {
     this.calls.push('prepare');
     this.become('prepared');
@@ -190,6 +194,19 @@ class FakePlayerAdapter implements PlayerAdapter {
 
   emitVideoSizeChange(width: number, height: number): void {
     this.videoSizeChangeHandler(width, height);
+  }
+}
+
+class EarlyPreparePlayerAdapter extends FakePlayerAdapter {
+  async prepare(): Promise<void> {
+    this.calls.push('prepare');
+    setTimeout((): void => this.emitState('prepared'), 30);
+  }
+}
+
+class NeverPreparedPlayerAdapter extends FakePlayerAdapter {
+  async prepare(): Promise<void> {
+    this.calls.push('prepare');
   }
 }
 
@@ -509,6 +526,30 @@ export default function task3PlayerTest(): void {
       const result: string | null = await withTimeout(hanging, 30, 'stuck task');
       expect(result === null).assertTrue();
       expect(Date.now() - startedAt >= 25).assertTrue();
+    });
+
+    it('waits for the real prepared event when prepare resolves early', 0, async (): Promise<void> => {
+      const adapter: EarlyPreparePlayerAdapter = new EarlyPreparePlayerAdapter();
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      const setupTask: Promise<void> = controller.setup('https://server/video.mp4', 'surface-1');
+      await new Promise<void>((resolve: () => void): void => setTimeout(resolve, 10));
+      expect(adapter.calls.join(',')).assertEqual('prepare');
+      expect(controller.isPlaying).assertFalse();
+      await setupTask;
+      expect(adapter.calls.join(',')).assertEqual('prepare,play');
+      expect(controller.isPlaying).assertTrue();
+      await controller.release();
+    });
+
+    it('cancels a pending prepared wait when released', 0, async (): Promise<void> => {
+      const adapter: NeverPreparedPlayerAdapter = new NeverPreparedPlayerAdapter();
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      const setupTask: Promise<void> = controller.setup('https://server/video.mp4', 'surface-1');
+      await new Promise<void>((resolve: () => void): void => setTimeout(resolve, 10));
+      await controller.release();
+      await setupTask;
+      expect(adapter.calls.join(',')).assertEqual('prepare,stop,reset,release');
+      expect(controller.state).assertEqual('released');
     });
 
     it('waits for the async initialized event before setting surfaceId', 0, async (): Promise<void> => {
