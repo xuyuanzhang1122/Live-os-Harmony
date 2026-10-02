@@ -196,7 +196,17 @@ class HarmonyPlayerAdapter implements PlayerAdapter {
   }
 
   onStateChange(handler: PlayerStateHandler): void {
-    this.nativeStateHandler = (state: media.AVPlayerState, _reason: media.StateChangeReason): void => handler(state);
+    this.nativeStateHandler = (state: media.AVPlayerState, _reason: media.StateChangeReason): void => {
+      if (state === 'prepared') {
+        try {
+          // API 12 下只能使用 FIT；此时原生播放器已经真正 prepared。
+          this.setPreparedScale();
+        } catch (error) {
+          diag(`prepared scale setup failed: ${error}`);
+        }
+      }
+      handler(state);
+    };
     this.player.on('stateChange', this.nativeStateHandler);
   }
 
@@ -595,17 +605,6 @@ export class PlayerController implements ProgressSource {
       this.initializedWaitReject(new Error('player entered error state while initializing'));
     }
     if (state === 'prepared') {
-      if (this.player !== null) {
-        try {
-          // API 12 下只能使用 FIT；此时原生播放器已经真正 prepared。
-          const adapter: PlayerAdapter = this.player;
-          if (adapter instanceof HarmonyPlayerAdapter) {
-            adapter.setPreparedScale();
-          }
-        } catch (error) {
-          diag(`prepared scale setup failed: ${error}`);
-        }
-      }
       if (this.preparedWaitResolve !== null) {
         this.preparedWaitResolve();
       }
