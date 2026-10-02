@@ -422,11 +422,11 @@ export class PlayerController implements ProgressSource {
       // 原生 prepare Promise 可能提前返回。先建立 prepared 等待，再调用 prepare，
       // 确保异步状态事件不会在等待器建立前到达。
       const preparedWait: Promise<void> = this.waitForPrepared(player, 30000);
-      let prepareError: Object | null = null;
+      let prepareError: PlayerOperationError | null = null;
       try {
         await player.prepare();
       } catch (error) {
-        prepareError = error;
+        prepareError = error instanceof PlayerOperationError ? error : toPlayerOperationError(error);
       }
       if (prepareError !== null) {
         this.cancelPreparedWait();
@@ -701,10 +701,10 @@ export class PlayerController implements ProgressSource {
   }
 
   private reportOperationError(error: Object): void {
-    const businessError: BusinessError = error as BusinessError;
-    const code: number = Number.isFinite(businessError.code) ? businessError.code : -1;
-    const message: string = businessError.message?.length > 0 ? businessError.message : `${error}`;
-    this.reportError(code, message);
+    const operationError: PlayerOperationError = error instanceof PlayerOperationError
+      ? error
+      : toPlayerOperationError(error);
+    this.reportError(operationError.code, operationError.message);
   }
 
   private waitForPrepared(player: PlayerAdapter, timeoutMs: number): Promise<void> {

@@ -532,7 +532,9 @@ export default function task3PlayerTest(): void {
       const adapter: EarlyPreparePlayerAdapter = new EarlyPreparePlayerAdapter();
       const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
       const setupTask: Promise<void> = controller.setup('https://server/video.mp4', 'surface-1');
-      await new Promise<void>((resolve: () => void): void => setTimeout(resolve, 10));
+      await new Promise<void>((resolve: () => void): void => {
+        setTimeout((): void => resolve(), 10);
+      });
       expect(adapter.calls.join(',')).assertEqual('prepare');
       expect(controller.isPlaying).assertFalse();
       await setupTask;
@@ -545,7 +547,9 @@ export default function task3PlayerTest(): void {
       const adapter: NeverPreparedPlayerAdapter = new NeverPreparedPlayerAdapter();
       const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
       const setupTask: Promise<void> = controller.setup('https://server/video.mp4', 'surface-1');
-      await new Promise<void>((resolve: () => void): void => setTimeout(resolve, 10));
+      await new Promise<void>((resolve: () => void): void => {
+        setTimeout((): void => resolve(), 10);
+      });
       await controller.release();
       await setupTask;
       expect(adapter.calls.join(',')).assertEqual('prepare,stop,reset,release');
