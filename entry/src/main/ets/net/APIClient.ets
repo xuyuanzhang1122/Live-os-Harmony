@@ -53,12 +53,16 @@ class BatchDeleteBody {
 }
 
 class HistoryPostBody {
+  recording_id?: string;
+  source_version?: string;
   video_path: string;
   video_name: string;
   position_seconds: number;
   duration_seconds: number;
 
   constructor(entry: WatchHistoryEntry) {
+    this.recording_id = entry.recording_id;
+    this.source_version = entry.source_version;
     this.video_path = entry.video_path;
     this.video_name = entry.video_name;
     this.position_seconds = entry.position_seconds;

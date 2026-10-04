@@ -51,6 +51,8 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 class WatchHistoryReport implements WatchHistoryEntry {
+  recording_id?: string;
+  source_version?: string;
   id: number = 0;
   api_key_user_id: string = '';
   video_path: string;
@@ -103,6 +105,9 @@ export struct PlayerPage {
   private surfaceId: string = '';
   private playbackURL: string = '';
   private sessionModel: PlayerViewModel | null = null;
+  private historyClient: APIClient | null = null;
+  private historyRecordingId: string = '';
+  private historySourceVersion: string = '';
   private refreshingPlayback: boolean = false;
   private playbackResolveTask: Promise<void> | null = null;
   private dragTarget: number = 0;
@@ -375,6 +380,9 @@ export struct PlayerPage {
       if (client.usesLegacyPlayback()) return false;
       if (file.recording_id.length === 0) throw new Error('录播身份已变化，请刷新列表后重新打开');
     }
+    this.historyClient = client;
+    this.historyRecordingId = file.recording_id;
+    this.historySourceVersion = file.source_version;
     const model: PlayerViewModel = new PlayerViewModel(client);
     this.sessionModel = model;
     model.onReady = async (session: PlaybackSession): Promise<void> => {
@@ -586,7 +594,9 @@ export struct PlayerPage {
     try {
       const entry: WatchHistoryEntry = new WatchHistoryReport(relPath, this.file.name,
         Math.max(this.controller.currentTime, this.currentTime, 0), this.duration);
-      await this.config.getClient().postHistory(entry);
+      entry.recording_id = this.historyRecordingId.length > 0 ? this.historyRecordingId : undefined;
+      entry.source_version = this.historySourceVersion.length > 0 ? this.historySourceVersion : undefined;
+      await (this.historyClient ?? this.config.getClient()).postHistory(entry);
       if (showSuccess && !this.shutdownStarted) {
         this.showToast('已同步到服务端');
       }

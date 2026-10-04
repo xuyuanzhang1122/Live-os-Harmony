@@ -1,0 +1,9 @@
+{
+  "source_sha256": {
+    "entry/src/main/ets/model/HistoryEntry.ets": "6fe1ada2155b5e659c5bdb3d09a8ec687163cdd1800531d028dd4df9a26a1470",
+    "entry/src/main/ets/net/APIClient.ets": "75cdc42e7d8bea6533e1878b09c0c4df60ff4253870665c14f6088070650dfe3",
+    "entry/src/main/ets/pages/PlayerPage.ets": "2893e2089dbb1a8c024fce504bfccc5741fe8d3daa7012e2c8aef8ce6e81bf31",
+    "TASKS/tests/v2-regression.cjs": "31080353961dbcb257d920a7d35d8727cfdc63cef5b4c51b7ee5d690e0887359"
+  },
+  "signed_hap_sha256": "fba12deaed4804534ad244d189a496011f8b1bc0b5d40455692622ac0db22b71"
+}

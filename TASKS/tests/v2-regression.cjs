@@ -118,3 +118,10 @@ test('Go omitempty near-expiry refresh is normalized only at the session boundar
  bad.data.expires_at=Math.floor(Date.now()/1000)+900;bad.data.token_expires_at=bad.data.expires_at-300;
  enqueue(bad);await assert.rejects(client().getPlaybackSession('s'));
 });
+
+test('history write preserves expected recording identity', async () => {
+  enqueue({err_no:0,err_msg:'ok'});
+  await client().postHistory({id:0,api_key_user_id:'',video_path:'平台/主播/clip.mp4',video_name:'clip',position_seconds:30,duration_seconds:100,updated_at:'',recording_id:'original-id',source_version:'original-version'});
+  const body=JSON.parse(calls[0].options.extraData);
+  assert.equal(body.recording_id,'original-id');assert.equal(body.source_version,'original-version');
+});
