@@ -7,6 +7,7 @@ export class PlayerViewModel {
   onError: (error: Error) => void = (_error: Error): void => {};
   private generation: number = 0;
   private session: PlaybackSession | null = null;
+  private playedAsset: string = '';
   private timer: number = -1;
   private wake: (() => void) | null = null;
   private body: CreatePlaybackSession | null = null;
@@ -41,6 +42,7 @@ export class PlayerViewModel {
     const session: PlaybackSession | null = this.session;
     this.session = null;
     this.body = null;
+    this.playedAsset = '';
     this.refreshing = false;
     if (session !== null) await this.cancelQuietly(session.id);
   }
@@ -51,6 +53,11 @@ export class PlayerViewModel {
       this.checkIdentity(session);
       this.session = session;
       if (session.status === 'ready') {
+        if (this.playedAsset.length > 0 && this.playedAsset !== session.asset_version) {
+          await this.cancelQuietly(session.id); this.session = null;
+          throw ApiError.decoding('播放资产版本已变化，请重新打开');
+        }
+        this.playedAsset = session.asset_version;
         await this.onReady(session);
         if (token === this.generation) this.scheduleRefresh(session.refresh_after_seconds ?? 1, token);
         return;
@@ -97,8 +104,6 @@ export class PlayerViewModel {
         if (token !== this.generation) return;
         session = renewed;
       }
-      if (previous.asset_version.length > 0 && session.asset_version.length > 0 &&
-        previous.asset_version !== session.asset_version) throw ApiError.decoding('播放资产版本已变化，请重新打开');
       this.refreshFailures = 0;
       await this.waitUntilReady(session, token);
     } catch (error) {

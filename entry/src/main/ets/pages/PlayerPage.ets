@@ -5,7 +5,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Formats } from '../common/Formats';
 import { Haptics } from '../common/Haptics';
 import { AppConfig } from '../config/AppConfig';
-import { WatchHistoryEntry } from '../model/HistoryEntry';
+import { WatchHistoryEntry, historyMatches } from '../model/HistoryEntry';
 import { ApiError } from '../model/Common';
 import { VideoFileInfo } from '../model/VideoLibrary';
 import { APIClient } from '../net/APIClient';
@@ -607,20 +607,19 @@ export struct PlayerPage {
   }
 
   private async fetchHistory(relPath: string): Promise<WatchHistoryEntry | null> {
-    try {
-      return await this.config.getClient().getHistoryEntry(relPath);
-    } catch (_) {
+    const client: APIClient = this.historyClient ?? this.config.getClient();
+    let candidate: WatchHistoryEntry | null = null;
+    try { candidate = await client.getHistoryEntry(relPath); }
+    catch (_) {
       try {
-        const entries: WatchHistoryEntry[] = await this.config.getClient().getHistoryAll();
-        for (let i: number = 0; i < entries.length; i++) {
-          if (entries[i].video_path === relPath) {
-            return entries[i];
-          }
-        }
-      } catch (_) {
-      }
-      return null;
+        const entries: WatchHistoryEntry[] = await client.getHistoryAll();
+        candidate = entries.find((entry: WatchHistoryEntry): boolean => entry.video_path === relPath &&
+          (client.usesLegacyPlayback() || historyMatches(entry, this.historyRecordingId, this.historySourceVersion))) ?? null;
+      } catch (_) {}
     }
+    if (client !== this.config.getClient()) return null;
+    if (candidate !== null && !client.usesLegacyPlayback() && !historyMatches(candidate, this.historyRecordingId, this.historySourceVersion)) return null;
+    return candidate;
   }
 
   private tryResumeFromHistory(): void {

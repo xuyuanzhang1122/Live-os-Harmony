@@ -55,3 +55,10 @@ test('新请求替换缓存中的总大小，不在客户端累加', async () =>
   assert.equal(model.rooms[0].total_size, 200000000000);
   assert.equal(writes[0][0].total_size, 200000000000);
 });
+test('v2 resume never guesses identity for old history or changed source', () => {
+ const {historyMatches}=load('model/HistoryEntry.ets');
+ const old={video_path:'same',position_seconds:30};
+ assert.equal(historyMatches(old,'id','v'),false);
+ assert.equal(historyMatches({...old,recording_id:'id',source_version:'v'},'id','v'),true);
+ assert.equal(historyMatches({...old,recording_id:'id',source_version:'old'},'id','v'),false);
+});

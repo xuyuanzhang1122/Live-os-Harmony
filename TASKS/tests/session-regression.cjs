@@ -38,3 +38,7 @@ test('transient refresh failure retries without swallowing permanent auth error'
 test('immediate exit before create continuation never creates or plays',async()=>{const x=setup();const task=x.model.open(x.identity,x.caps);await x.model.close();await task;assert.equal(x.calls.length,0);assert.equal(x.states.length,0);});
 test('zero refresh replaces expiring session and cancels old lease',async()=>{let count=0;const r=ready();const x=setup({createPlaybackSession:async()=>({...r,id:++count===1?r.id:'new-session'}),getPlaybackSession:async()=>({...r,refresh_after_seconds:0})});
  await x.model.open(x.identity,x.caps);await tick();assert.equal(count,2);assert.equal(x.states[1].id,'new-session');assert.ok(x.calls.some(c=>c[0]==='cancel'&&c[1]===r.id));await x.model.close();});
+test('played asset stays pinned through 410 processing transition',async()=>{
+ let creates=0;const r=ready();const x=setup({createPlaybackSession:async()=>++creates===1?r:{...r,id:'new',status:'processing',asset_version:'',url:undefined,retry_after_seconds:2},getPlaybackSession:async(id)=>{if(id===r.id)throw new v2.V2ApiError(410,{code:'session_expired',message:'expired',retryable:false},'r');return {...r,id:'new',asset_version:'changed'};}});
+ await x.model.open(x.identity,x.caps);await tick();await tick();assert.equal(x.states.length,1);assert.equal(x.errors.length,1);assert.ok(x.calls.some(c=>c[0]==='cancel'&&c[1]==='new'));await x.model.close();
+});
