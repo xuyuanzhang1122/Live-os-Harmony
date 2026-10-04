@@ -66,6 +66,7 @@ class FakePlayerAdapter implements PlayerAdapter {
   timeUpdateHandler: PlayerNumberHandler = (_milliseconds: number): void => {};
   durationUpdateHandler: PlayerNumberHandler = (_milliseconds: number): void => {};
   videoSizeChangeHandler: PlayerVideoSizeHandler = (_width: number, _height: number): void => {};
+  private errorHandler: PlayerErrorHandler = (_code: number, _message: string): void => {};
   private stateHandler: PlayerStateHandler = (_state: PlayerState): void => {};
 
   get url(): string {
@@ -145,8 +146,8 @@ class FakePlayerAdapter implements PlayerAdapter {
     this.stateHandler = (_state: PlayerState): void => {};
     this.unboundCount += 1;
   }
-  onError(_handler: PlayerErrorHandler): void { this.boundCount += 1; }
-  offError(_handler: PlayerErrorHandler): void { this.unboundCount += 1; }
+  onError(handler: PlayerErrorHandler): void { this.errorHandler = handler; this.boundCount += 1; }
+  offError(_handler: PlayerErrorHandler): void { this.errorHandler = (_code: number, _message: string): void => {}; this.unboundCount += 1; }
   onSeekDone(_handler: PlayerNumberHandler): void { this.boundCount += 1; }
   offSeekDone(_handler: PlayerNumberHandler): void { this.unboundCount += 1; }
   onDurationUpdate(handler: PlayerNumberHandler): void {
@@ -180,6 +181,10 @@ class FakePlayerAdapter implements PlayerAdapter {
   onBufferingUpdate(_handler: BufferingUpdateHandler): void { this.boundCount += 1; }
   offBufferingUpdate(_handler: BufferingUpdateHandler): void { this.unboundCount += 1; }
 
+  emitError(code: number, message: string): void {
+    this.errorHandler(code, message);
+  }
+
   emitSpeedDone(rate: number): void {
     this.speedDoneHandler(rate);
   }
@@ -204,9 +209,39 @@ class EarlyPreparePlayerAdapter extends FakePlayerAdapter {
   }
 }
 
-class NeverPreparedPlayerAdapter extends FakePlayerAdapter {
+class HangingPreparePlayerAdapter extends FakePlayerAdapter {
   async prepare(): Promise<void> {
     this.calls.push('prepare');
+    await new Promise<void>((_resolve: () => void): void => {});
+  }
+}
+
+class NeverPreparedPlayerAdapter extends FakePlayerAdapter {
+  async prepare(): Promise<void> { this.calls.push('prepare'); }
+}
+
+class DeferredPreparePlayerAdapter extends FakePlayerAdapter {
+  finishPrepare: () => void = (): void => {};
+  failPrepare: () => void = (): void => {};
+  async prepare(): Promise<void> {
+    this.calls.push('prepare');
+    await new Promise<void>((resolve: () => void, reject: (error: Object) => void): void => {
+      this.finishPrepare = resolve;
+      this.failPrepare = (): void => reject(new PlayerOperationError(5400106, 'late rejection'));
+    });
+  }
+}
+
+class AsyncErrorPlayerAdapter extends FakePlayerAdapter {
+  private errorFirst: boolean;
+  constructor(errorFirst: boolean) { super(); this.errorFirst = errorFirst; }
+  async prepare(): Promise<void> {
+    this.calls.push('prepare');
+    setTimeout((): void => {
+      if (!this.errorFirst) this.emitState('error');
+      this.emitError(5400106, 'unsupported format');
+      if (this.errorFirst) this.emitState('error');
+    }, 5);
   }
 }
 
@@ -543,8 +578,8 @@ export default function task3PlayerTest(): void {
       await controller.release();
     });
 
-    it('cancels a pending prepared wait when released', 0, async (): Promise<void> => {
-      const adapter: NeverPreparedPlayerAdapter = new NeverPreparedPlayerAdapter();
+    it('cancels a hanging native prepare when released', 0, async (): Promise<void> => {
+      const adapter: HangingPreparePlayerAdapter = new HangingPreparePlayerAdapter();
       const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
       const setupTask: Promise<void> = controller.setup('https://server/video.mp4', 'surface-1');
       await new Promise<void>((resolve: () => void): void => {
@@ -554,6 +589,62 @@ export default function task3PlayerTest(): void {
       await setupTask;
       expect(adapter.calls.join(',')).assertEqual('prepare,stop,reset,release');
       expect(controller.state).assertEqual('released');
+    });
+
+    it('cancels after prepare returns but before prepared arrives', 0, async (): Promise<void> => {
+      const adapter: NeverPreparedPlayerAdapter = new NeverPreparedPlayerAdapter();
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      const task: Promise<void> = controller.setup('https://server/video.mp4', 'surface-1');
+      await new Promise<void>((resolve: () => void): void => { setTimeout(resolve, 10); });
+      await controller.release();
+      await task;
+      expect(adapter.calls.join(',')).assertEqual('prepare,stop,reset,release');
+    });
+
+    it('ignores a late prepare rejection after close', 0, async (): Promise<void> => {
+      const adapter: DeferredPreparePlayerAdapter = new DeferredPreparePlayerAdapter();
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+      let errorCount: number = 0;
+      controller.onError = (_code: number, _message: string): void => { errorCount += 1; };
+      const task: Promise<void> = controller.setup('https://server/video.mp4', 'surface-1');
+      await new Promise<void>((resolve: () => void): void => { setTimeout(resolve, 10); });
+      await controller.release();
+      await task;
+      adapter.failPrepare();
+      await new Promise<void>((resolve: () => void): void => { setTimeout(resolve, 5); });
+      expect(errorCount).assertEqual(0);
+      expect(adapter.calls.join(',')).assertEqual('prepare,stop,reset,release');
+    });
+
+    it('keeps the next session playing when old prepare finishes late', 0, async (): Promise<void> => {
+      const first: DeferredPreparePlayerAdapter = new DeferredPreparePlayerAdapter();
+      const next: FakePlayerAdapter = new FakePlayerAdapter();
+      let created: number = 0;
+      const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => {
+        created += 1;
+        return created === 1 ? first : next;
+      });
+      const oldTask: Promise<void> = controller.setup('https://server/first.mp4', 'surface-1');
+      await new Promise<void>((resolve: () => void): void => { setTimeout(resolve, 10); });
+      await controller.release();
+      await oldTask;
+      await controller.setup('https://server/next.mp4', 'surface-2');
+      first.finishPrepare();
+      await new Promise<void>((resolve: () => void): void => { setTimeout(resolve, 5); });
+      expect(controller.isPlaying).assertTrue();
+      expect(next.calls.join(',')).assertEqual('prepare,play');
+      await controller.release();
+    });
+
+    it('reports an async native error once regardless of event ordering', 0, async (): Promise<void> => {
+      for (const errorFirst of [false, true]) {
+        const adapter: AsyncErrorPlayerAdapter = new AsyncErrorPlayerAdapter(errorFirst);
+        const controller: PlayerController = new PlayerController(async (): Promise<PlayerAdapter> => adapter);
+        const codes: number[] = [];
+        controller.onError = (code: number, _message: string): void => { codes.push(code); };
+        await controller.setup('https://server/video.mp4', 'surface-1');
+        expect(codes.join(',')).assertEqual('5400106');
+      }
     });
 
     it('waits for the async initialized event before setting surfaceId', 0, async (): Promise<void> => {

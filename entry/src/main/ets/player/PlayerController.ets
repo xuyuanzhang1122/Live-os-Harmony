@@ -30,6 +30,12 @@ export function withTimeout<T>(task: Promise<T>, timeoutMs: number, label: strin
   });
 }
 
+export interface PlaybackStartOptions {
+  positionSeconds: number;
+  rate: number;
+  autoplay: boolean;
+}
+
 export type PlayerState = 'idle' | 'initialized' | 'prepared' | 'playing' | 'paused' | 'completed' |
   'stopped' | 'released' | 'error';
 export type PlayerStateHandler = (state: PlayerState) => void;
@@ -38,12 +44,38 @@ export type PlayerNumberHandler = (value: number) => void;
 export type PlayerVideoSizeHandler = (width: number, height: number) => void;
 export type BufferingUpdateHandler = (infoType: number, value: number) => void;
 
+interface PlayerEventBindings {
+  player: PlayerAdapter;
+  stateChange: PlayerStateHandler;
+  error: PlayerErrorHandler;
+  seekDone: PlayerNumberHandler;
+  durationUpdate: PlayerNumberHandler;
+  videoSizeChange: PlayerVideoSizeHandler;
+  timeUpdate: PlayerNumberHandler;
+  speedDone: PlayerNumberHandler;
+  volumeChange: PlayerNumberHandler;
+  bufferingUpdate: BufferingUpdateHandler;
+  firstFrame: () => void;
+}
+
 export class PlayerOperationError extends Error {
   readonly code: number;
 
   constructor(code: number, message: string) {
     super(message);
     this.code = code;
+  }
+}
+
+export class PrepareResult {
+  readonly completed: boolean;
+  readonly cancelled: boolean;
+  readonly error: PlayerOperationError | null;
+
+  constructor(completed: boolean, cancelled: boolean, error: PlayerOperationError | null) {
+    this.completed = completed;
+    this.cancelled = cancelled;
+    this.error = error;
   }
 }
 
@@ -77,6 +109,8 @@ function playbackRateFromNativeSpeed(speed: number): number {
 }
 
 export interface PlayerAdapter {
+  onFirstFrame?(handler: () => void): void;
+  offFirstFrame?(handler: () => void): void;
   url: string;
   surfaceId: string;
   readonly duration: number;
@@ -143,6 +177,9 @@ class HarmonyPlayerAdapter implements PlayerAdapter {
     // 上报的宽高比布局 XComponent，surface 比例与视频一致时 FIT 拉伸无可感知形变。
     this.player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
   }
+
+  onFirstFrame(handler: () => void): void { this.player.on('startRenderFrame', handler); }
+  offFirstFrame(handler: () => void): void { this.player.off('startRenderFrame', handler); }
 
   async prepare(): Promise<void> {
     try {
@@ -324,6 +361,7 @@ async function createHarmonyPlayerAdapter(): Promise<PlayerAdapter> {
 }
 
 export class PlayerController implements ProgressSource {
+  onFirstFrame: () => void = (): void => {};
   onStateChange: PlayerStateHandler = (_state: PlayerState): void => {};
   onError: PlayerErrorHandler = (_code: number, _message: string): void => {};
   onSeekDone: PlayerNumberHandler = (_seconds: number): void => {};
@@ -341,11 +379,14 @@ export class PlayerController implements ProgressSource {
   private lastLoggedSecond: number = -1;
   private releaseTask: Promise<void> | null = null;
   private lifecycleToken: number = 0;
+  private seekWaitFinish: ((error: PlayerOperationError | null) => void) | null = null;
   private initializedWaitResolve: (() => void) | null = null;
-  private initializedWaitReject: ((error: Error) => void) | null = null;
+  private initializedWaitReject: ((error: Object) => void) | null = null;
   private preparedWaitResolve: (() => void) | null = null;
-  private preparedWaitReject: ((error: Error) => void) | null = null;
-  private preparedWaitTimer: number | null = null;
+  private preparedWaitReject: ((error: Object) => void) | null = null;
+  private setupErrorReported: boolean = false;
+  private eventBindings: PlayerEventBindings | null = null;
+  private prepareCancelResolve: (() => void) | null = null;
 
   constructor(factory: PlayerAdapterFactory = createHarmonyPlayerAdapter) {
     this.factory = factory;
@@ -389,14 +430,18 @@ export class PlayerController implements ProgressSource {
     return this.state === 'playing';
   }
 
-  async setup(url: string, surfaceId: string): Promise<void> {
+  async setup(url: string, surfaceId: string, start?: PlaybackStartOptions): Promise<void> {
+    if (this.player !== null || this.releaseTask !== null) {
+      await this.release();
+    }
     const token: number = this.lifecycleToken + 1;
     this.lifecycleToken = token;
+    this.setupErrorReported = false;
     this.cachedDurationMs = 0;
     this.cachedCurrentTimeMs = 0;
     this.hasCurrentTimeUpdate = false;
     this.lastLoggedSecond = -1;
-    diag(`setup url=${url.substring(0, 140)} surface=${surfaceId}`);
+    diag(`setup url=${url.split('?')[0].substring(0, 140)} surface=${surfaceId}`);
     if (url.length === 0 || surfaceId.length === 0) {
       this.reportError(-1, 'Missing playback URL or surface');
       return;
@@ -410,42 +455,37 @@ export class PlayerController implements ProgressSource {
       }
       this.player = player;
       this.releaseTask = null;
-      this.bindEvents(player);
+      this.bindEvents(player, token);
       player.url = url;
       diag('url set');
       // url 赋值后进入 initialized 是异步事件：必须等状态就绪再设 surfaceId/prepare，
       // 否则真机会以 5400102（surfaceId 仅 initialized 态可设）拒绝并导致播放完全失败。
       await this.waitForInitialized(player, 10000);
+      if (token !== this.lifecycleToken || this.player !== player) return;
       diag(`initialized ready, state=${player.state}`);
       player.surfaceId = surfaceId;
       diag(`surfaceId set, state=${player.state}`);
-      // 原生 prepare Promise 可能提前返回。先建立 prepared 等待，再调用 prepare，
-      // 确保异步状态事件不会在等待器建立前到达。
-      const preparedWait: Promise<void> = this.waitForPrepared(player, 30000);
-      let prepareError: PlayerOperationError | null = null;
-      try {
-        await player.prepare();
-      } catch (error) {
-        prepareError = error instanceof PlayerOperationError ? error : toPlayerOperationError(error);
-      }
-      if (prepareError !== null) {
-        this.cancelPreparedWait();
-        throw prepareError;
-      }
-      await preparedWait;
+      const prepareResult: PrepareResult = await this.preparePlayer(player, 30000);
+      if (prepareResult.cancelled || token !== this.lifecycleToken || this.player !== player) return;
+      if (prepareResult.error !== null) throw prepareResult.error;
       diag(`prepare done, state=${player.state}, durationMs=${player.duration}`);
-      if (token !== this.lifecycleToken) {
-        await this.release();
-        return;
-      }
       this.publishDuration(player.duration);
-      await player.play();
-      diag(`play done, state=${player.state}`);
-      this.publishStateSnapshot(player, 'setup play promise');
+      if (start !== undefined) {
+        if (start.positionSeconds > 0) await this.restorePosition(player, start.positionSeconds);
+        if (!this.isPlayerSession(player, token)) return;
+        player.setSpeed(start.rate);
+      }
+      if (start?.autoplay ?? true) {
+        await player.play();
+        diag(`play done, state=${player.state}`);
+        this.publishStateSnapshot(player, 'setup play promise');
+      } else { this.publishStateSnapshot(player, 'setup prepared'); }
     } catch (error) {
       diag(`setup failed: ${error}`);
       if (token === this.lifecycleToken) {
-        this.reportOperationError(error);
+        if (!this.setupErrorReported) {
+          this.reportOperationError(error);
+        }
         const failedPlayer: PlayerAdapter | null = this.player;
         if (failedPlayer !== null) {
           await this.release();
@@ -535,7 +575,10 @@ export class PlayerController implements ProgressSource {
   release(): Promise<void> {
     this.lifecycleToken += 1;
     this.cancelInitializedWait();
-    this.cancelPreparedWait();
+    if (this.seekWaitFinish !== null) this.seekWaitFinish(new PlayerOperationError(-1, 'seek cancelled'));
+    if (this.prepareCancelResolve !== null) {
+      this.prepareCancelResolve();
+    }
     if (this.releaseTask !== null) {
       return this.releaseTask;
     }
@@ -566,32 +609,74 @@ export class PlayerController implements ProgressSource {
     diag(`release chain done finalState=${player.state}`);
     if (this.player === player) {
       this.player = null;
+      this.cachedState = 'released';
     }
-    this.cachedState = 'released';
   }
 
-  private bindEvents(player: PlayerAdapter): void {
-    player.onStateChange(this.handleStateChange);
-    player.onError(this.handleError);
-    player.onSeekDone(this.handleSeekDone);
-    player.onDurationUpdate(this.handleDurationUpdate);
-    player.onVideoSizeChange(this.handleVideoSizeChange);
-    player.onTimeUpdate(this.handleTimeUpdate);
-    player.onSpeedDone(this.handleSpeedDone);
-    player.onVolumeChange(this.handleVolumeChange);
-    player.onBufferingUpdate(this.handleBufferingUpdate);
+  private bindEvents(player: PlayerAdapter, token: number): void {
+    const bindings: PlayerEventBindings = {
+      player: player,
+      firstFrame: (): void => {
+        if (this.isPlayerSession(player, token)) {
+          diag(`first frame native event token=${token} atMs=${Date.now()}`);
+          this.onFirstFrame();
+        }
+      },
+      stateChange: (state: PlayerState): void => {
+        if (this.isPlayerSession(player, token)) this.handleStateChange(state);
+      },
+      error: (code: number, message: string): void => {
+        if (this.isPlayerSession(player, token)) this.handleError(code, message);
+      },
+      seekDone: this.bindSessionNumber(player, token, this.handleSeekDone),
+      durationUpdate: this.bindSessionNumber(player, token, this.handleDurationUpdate),
+      videoSizeChange: (width: number, height: number): void => {
+        if (this.isPlayerSession(player, token)) this.handleVideoSizeChange(width, height);
+      },
+      timeUpdate: this.bindSessionNumber(player, token, this.handleTimeUpdate),
+      speedDone: this.bindSessionNumber(player, token, this.handleSpeedDone),
+      volumeChange: this.bindSessionNumber(player, token, this.handleVolumeChange),
+      bufferingUpdate: (infoType: number, value: number): void => {
+        if (this.isPlayerSession(player, token)) this.handleBufferingUpdate(infoType, value);
+      }
+    };
+    this.eventBindings = bindings;
+    player.onFirstFrame?.(bindings.firstFrame);
+    player.onStateChange(bindings.stateChange);
+    player.onError(bindings.error);
+    player.onSeekDone(bindings.seekDone);
+    player.onDurationUpdate(bindings.durationUpdate);
+    player.onVideoSizeChange(bindings.videoSizeChange);
+    player.onTimeUpdate(bindings.timeUpdate);
+    player.onSpeedDone(bindings.speedDone);
+    player.onVolumeChange(bindings.volumeChange);
+    player.onBufferingUpdate(bindings.bufferingUpdate);
+  }
+
+  private isPlayerSession(player: PlayerAdapter, token: number): boolean {
+    return this.player === player && token === this.lifecycleToken;
+  }
+
+  private bindSessionNumber(player: PlayerAdapter, token: number, handler: PlayerNumberHandler): PlayerNumberHandler {
+    return (value: number): void => {
+      if (this.isPlayerSession(player, token)) handler(value);
+    };
   }
 
   private unbindEvents(player: PlayerAdapter): void {
-    player.offStateChange(this.handleStateChange);
-    player.offError(this.handleError);
-    player.offSeekDone(this.handleSeekDone);
-    player.offDurationUpdate(this.handleDurationUpdate);
-    player.offVideoSizeChange(this.handleVideoSizeChange);
-    player.offTimeUpdate(this.handleTimeUpdate);
-    player.offSpeedDone(this.handleSpeedDone);
-    player.offVolumeChange(this.handleVolumeChange);
-    player.offBufferingUpdate(this.handleBufferingUpdate);
+    const bindings: PlayerEventBindings | null = this.eventBindings;
+    if (bindings === null || bindings.player !== player) return;
+    player.offFirstFrame?.(bindings.firstFrame);
+    player.offStateChange(bindings.stateChange);
+    player.offError(bindings.error);
+    player.offSeekDone(bindings.seekDone);
+    player.offDurationUpdate(bindings.durationUpdate);
+    player.offVideoSizeChange(bindings.videoSizeChange);
+    player.offTimeUpdate(bindings.timeUpdate);
+    player.offSpeedDone(bindings.speedDone);
+    player.offVolumeChange(bindings.volumeChange);
+    player.offBufferingUpdate(bindings.bufferingUpdate);
+    this.eventBindings = null;
   }
 
   private handleStateChange: PlayerStateHandler = (state: PlayerState): void => {
@@ -601,15 +686,11 @@ export class PlayerController implements ProgressSource {
       if (this.initializedWaitResolve !== null) {
         this.initializedWaitResolve();
       }
-    } else if (state === 'error' && this.initializedWaitReject !== null) {
-      this.initializedWaitReject(new Error('player entered error state while initializing'));
     }
     if (state === 'prepared') {
       if (this.preparedWaitResolve !== null) {
         this.preparedWaitResolve();
       }
-    } else if (state === 'error' && this.preparedWaitReject !== null) {
-      this.preparedWaitReject(new Error('player entered error state while preparing'));
     }
     if (state === 'prepared' && this.player !== null) {
       this.publishDuration(this.player.duration);
@@ -619,15 +700,11 @@ export class PlayerController implements ProgressSource {
 
   private handleError: PlayerErrorHandler = (code: number, message: string): void => {
     diag(`error code=${code} message=${message}`);
-    this.cachedState = 'error';
-    if (this.initializedWaitReject !== null) {
-      this.initializedWaitReject(new Error(message));
-    }
-    if (this.preparedWaitReject !== null) {
-      this.preparedWaitReject(new Error(message));
-    }
-    this.onStateChange('error');
-    this.onError(code, message);
+    const error: PlayerOperationError = new PlayerOperationError(code, message);
+    if (this.initializedWaitReject !== null) this.initializedWaitReject(error);
+    if (this.preparedWaitReject !== null) this.preparedWaitReject(error);
+    this.setupErrorReported = true;
+    this.reportError(code, message);
   };
 
   private handleSeekDone: PlayerNumberHandler = (milliseconds: number): void => {
@@ -637,6 +714,7 @@ export class PlayerController implements ProgressSource {
     }
     this.cachedCurrentTimeMs = milliseconds;
     this.hasCurrentTimeUpdate = true;
+    if (this.seekWaitFinish !== null) this.seekWaitFinish(null);
     this.onSeekDone(milliseconds / 1000);
   };
 
@@ -707,54 +785,64 @@ export class PlayerController implements ProgressSource {
     this.reportError(operationError.code, operationError.message);
   }
 
-  private waitForPrepared(player: PlayerAdapter, timeoutMs: number): Promise<void> {
-    if (player.state === 'prepared') {
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve: () => void, reject: (error: Error) => void): void => {
-      this.preparedWaitTimer = setTimeout((): void => {
-        this.preparedWaitResolve = null;
-        this.preparedWaitReject = null;
-        this.preparedWaitTimer = null;
-        reject(new Error(`timeout after ${timeoutMs}ms waiting for prepared state`));
+  private preparePlayer(player: PlayerAdapter, timeoutMs: number): Promise<PrepareResult> {
+    // 状态事件与操作 Promise 独立完成；所有失败和取消共用一个出口，不产生游离拒绝。
+    return new Promise<PrepareResult>((resolve: (result: PrepareResult) => void): void => {
+      let finished: boolean = false;
+      let nativeCompleted: boolean = false;
+      let prepared: boolean = player.state === 'prepared';
+      let timer: number = 0;
+      const finish = (result: PrepareResult): void => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        if (this.preparedWaitResolve === onPrepared) this.preparedWaitResolve = null;
+        if (this.preparedWaitReject === onError) this.preparedWaitReject = null;
+        if (this.prepareCancelResolve === onCancel) this.prepareCancelResolve = null;
+        resolve(result);
+      };
+      const complete = (): void => {
+        if (nativeCompleted && prepared) finish(new PrepareResult(true, false, null));
+      };
+      const onPrepared = (): void => {
+        prepared = true;
+        complete();
+      };
+      const onError = (error: Object): void => {
+        finish(new PrepareResult(false, false, toPlayerOperationError(error)));
+      };
+      const onCancel = (): void => finish(new PrepareResult(false, true, null));
+      this.preparedWaitResolve = onPrepared;
+      this.preparedWaitReject = onError;
+      this.prepareCancelResolve = onCancel;
+      timer = setTimeout((): void => {
+        onError(new PlayerOperationError(-1, `timeout after ${timeoutMs}ms preparing player`));
       }, timeoutMs);
-      this.preparedWaitResolve = (): void => {
-        if (this.preparedWaitTimer !== null) {
-          clearTimeout(this.preparedWaitTimer);
-        }
-        this.preparedWaitResolve = null;
-        this.preparedWaitReject = null;
-        this.preparedWaitTimer = null;
-        resolve();
-      };
-      this.preparedWaitReject = (error: Error): void => {
-        if (this.preparedWaitTimer !== null) {
-          clearTimeout(this.preparedWaitTimer);
-        }
-        this.preparedWaitResolve = null;
-        this.preparedWaitReject = null;
-        this.preparedWaitTimer = null;
-        reject(error);
-      };
+      Promise.resolve().then((): Promise<void> => player.prepare()).then((): void => {
+        nativeCompleted = true;
+        complete();
+      }, (error: Object): void => {
+        onError(toPlayerOperationError(error));
+      });
     });
   }
 
-  private cancelPreparedWait(): void {
-    const reject: ((error: Error) => void) | null = this.preparedWaitReject;
-    if (reject !== null) {
-      reject(new Error('player setup cancelled while waiting for prepared state'));
-      return;
-    }
-    if (this.preparedWaitTimer !== null) {
-      clearTimeout(this.preparedWaitTimer);
-    }
-    this.preparedWaitTimer = null;
-    this.preparedWaitResolve = null;
-    this.preparedWaitReject = null;
+  private restorePosition(player: PlayerAdapter, seconds: number): Promise<void> {
+    return new Promise<void>((resolve: () => void, reject: (error: PlayerOperationError) => void): void => {
+      const finish = (error: PlayerOperationError | null): void => {
+        if (this.seekWaitFinish !== finish) return;
+        this.seekWaitFinish = null;
+        clearTimeout(timer);
+        if (error !== null) reject(error); else resolve();
+      };
+      const timer: number = setTimeout((): void => finish(new PlayerOperationError(-1, '恢复播放位置超时')), 5000);
+      this.seekWaitFinish = finish;
+      try { player.seek(Math.round(seconds * 1000)); } catch (error) { finish(toPlayerOperationError(error)); }
+    });
   }
 
   private cancelInitializedWait(): void {
-    const reject: ((error: Error) => void) | null = this.initializedWaitReject;
+    const reject: ((error: Object) => void) | null = this.initializedWaitReject;
     if (reject !== null) {
       reject(new Error('player setup cancelled while waiting for initialized state'));
     }
@@ -764,7 +852,7 @@ export class PlayerController implements ProgressSource {
     if (player.state === 'initialized') {
       return Promise.resolve();
     }
-    return new Promise<void>((resolve: () => void, reject: (error: Error) => void): void => {
+    return new Promise<void>((resolve: () => void, reject: (error: Object) => void): void => {
       const timer: number = setTimeout((): void => {
         this.initializedWaitResolve = null;
         this.initializedWaitReject = null;
@@ -776,7 +864,7 @@ export class PlayerController implements ProgressSource {
         this.initializedWaitReject = null;
         resolve();
       };
-      this.initializedWaitReject = (error: Error): void => {
+      this.initializedWaitReject = (error: Object): void => {
         clearTimeout(timer);
         this.initializedWaitResolve = null;
         this.initializedWaitReject = null;

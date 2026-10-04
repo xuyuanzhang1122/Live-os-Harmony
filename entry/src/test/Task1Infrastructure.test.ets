@@ -4,7 +4,7 @@ import { sha256Hex } from '../main/ets/common/Sha256';
 import { AppConfig } from '../main/ets/config/AppConfig';
 import { APIClient } from '../main/ets/net/APIClient';
 import { ApiCache, CacheClock } from '../main/ets/net/ApiCache';
-import { ApiError, ApiErrorType } from '../main/ets/model/Common';
+import { ApiError, ApiErrorType, BatchDeleteResult } from '../main/ets/model/Common';
 import { WatchHistoryEntry } from '../main/ets/model/HistoryEntry';
 import {
   BackupDeviceConfig,
@@ -76,7 +76,7 @@ class FakeVideoClient extends APIClient {
   batchPaths: string[] = [];
 
   constructor() {
-    super('http://server');
+    super('http://server', '', 'legacy');
   }
 
   async getVideoLibrary(): Promise<VideoRoomInfo[]> {
@@ -98,8 +98,9 @@ class FakeVideoClient extends APIClient {
     this.deletedPath = relPath;
   }
 
-  async batchDeleteFiles(paths: string[]): Promise<void> {
+  async batchDeleteFiles(paths: string[]): Promise<BatchDeleteResult[]> {
     this.batchPaths = paths;
+    return paths.map((path: string): BatchDeleteResult => ({ path: path, success: true, message: '成功' }));
   }
 }
 
@@ -279,7 +280,7 @@ export default function task1InfrastructureTest(): void {
       expect(historyProgressPercent(10, 0)).assertEqual(-1);
     });
 
-    it('renders cached rooms when the following network refresh fails', 0, async (): Promise<void> => {
+    it('缓存记录保留但刷新失败必须报告', 0, async (): Promise<void> => {
       const cache: MemoryApiCache = new MemoryApiCache();
       const client: FakeVideoClient = new FakeVideoClient();
       client.libraryFails = true;
@@ -298,7 +299,7 @@ export default function task1InfrastructureTest(): void {
       await viewModel.load();
       expect(viewModel.rooms.length).assertEqual(1);
       expect(viewModel.rooms[0].host_name).assertEqual('缓存主播');
-      expect(viewModel.errorText).assertEqual('');
+      expect(viewModel.errorText.indexOf('offline') >= 0).assertTrue();
     });
 
     it('indexes history and keeps delete state consistent with API calls', 0, async (): Promise<void> => {

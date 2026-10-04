@@ -1,6 +1,7 @@
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
-import { http } from '@kit.NetworkKit';
+import { AppConfig } from '../config/AppConfig';
+import { APIClient } from '../net/APIClient';
 import { sha256Hex } from '../common/Sha256';
 import { LruCache } from './LruCache';
 
@@ -10,6 +11,7 @@ const MEMORY_BYTE_LIMIT: number = 50 * 1024 * 1024;
 export class ThumbnailCache {
   private static instance: ThumbnailCache | null = null;
   private readonly directory: string;
+  private generation: number = 0;
   private readonly memory: LruCache<string, image.PixelMap> =
     new LruCache<string, image.PixelMap>(MEMORY_COUNT_LIMIT, MEMORY_BYTE_LIMIT);
   private readonly sessionLoaded: Set<string> = new Set<string>();
@@ -37,6 +39,8 @@ export class ThumbnailCache {
   }
 
   async load(url: string): Promise<image.PixelMap | null> {
+    const token: number = this.generation;
+    const client: APIClient = AppConfig.getInstance().getClient();
     const memoryValue: image.PixelMap | undefined = this.memory.get(url);
     if (memoryValue !== undefined) {
       this.sessionLoaded.add(url);
@@ -49,13 +53,14 @@ export class ThumbnailCache {
         return diskValue;
       }
     }
-    const response: ArrayBuffer | null = await this.download(url);
-    if (response === null) {
+    const response: ArrayBuffer | null = await client.downloadThumbnail(url);
+    if (response === null || token !== this.generation) {
       return null;
     }
     try {
       const source: image.ImageSource = image.createImageSource(response);
       const pixelMap: image.PixelMap = await source.createPixelMap();
+      if (token !== this.generation) { pixelMap.release(); return null; }
       this.memory.set(url, pixelMap, pixelMap.getPixelBytesNumber());
       this.sessionLoaded.add(url);
       this.writeBuffer(this.pathFor(url), response);
@@ -66,6 +71,7 @@ export class ThumbnailCache {
   }
 
   invalidateSession(): void {
+    this.generation += 1;
     this.sessionLoaded.clear();
     this.memory.clear();
   }
@@ -104,28 +110,6 @@ export class ThumbnailCache {
       return await image.createImageSource(buffer).createPixelMap();
     } catch (_) {
       return null;
-    }
-  }
-
-  private async download(url: string): Promise<ArrayBuffer | null> {
-    const request: http.HttpRequest = http.createHttp();
-    const options: http.HttpRequestOptions = {
-      method: http.RequestMethod.GET,
-      expectDataType: http.HttpDataType.ARRAY_BUFFER,
-      readTimeout: 15000,
-      connectTimeout: 15000,
-      usingCache: false
-    };
-    try {
-      const response: http.HttpResponse = await request.request(url, options);
-      if (response.responseCode < 200 || response.responseCode >= 400 || !(response.result instanceof ArrayBuffer)) {
-        return null;
-      }
-      return response.result;
-    } catch (_) {
-      return null;
-    } finally {
-      request.destroy();
     }
   }
 

@@ -99,8 +99,13 @@ export struct VideoListPage {
         return;
       }
       const deleted: number = await this.viewModel.deleteSelected();
-      this.editMode = false;
-      this.showToast(`已删除 ${deleted} 个文件`);
+      this.editMode = this.viewModel.selectedPaths.length > 0;
+      const failures = this.viewModel.deleteFailures;
+      if (failures.length > 0) {
+        this.showToast(`已删除 ${deleted} 个文件，${failures.length} 个失败：${failures[0].message ?? '删除失败'}`);
+      } else {
+        this.showToast(`已删除 ${deleted} 个文件`);
+      }
     } catch (error) {
       this.showToast(error instanceof Error ? error.message : `${error}`);
     }
@@ -187,7 +192,7 @@ export struct VideoListPage {
         }
         .width('100%')
 
-        Text(`${Formats.formatBytes(file.size)} · ${this.fileDate(file)}`)
+        Text(`${file.size_text.length > 0 ? file.size_text : Formats.formatBytes(file.size)} · ${this.fileDate(file)}`)
           .width('100%')
           .fontSize(12)
           .fontColor($r('sys.color.font_secondary'))
@@ -281,6 +286,9 @@ export struct VideoListPage {
         .height(44)
         .padding({ left: 12, right: 12 })
 
+        if (this.viewModel.errorText.length > 0 && this.viewModel.files.length > 0) {
+          Text(this.viewModel.errorText).fontColor($r('sys.color.font_secondary')).padding(12)
+        }
         Refresh({ refreshing: this.viewModel.isRefreshing }) {
           if (this.viewModel.isLoading && this.viewModel.files.length === 0) {
             Column({ space: 10 }) {

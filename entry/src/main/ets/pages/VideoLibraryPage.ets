@@ -1,4 +1,3 @@
-import { Formats } from '../common/Formats';
 import { AppButtonRole } from '../common/Theme';
 import { AppConfig } from '../config/AppConfig';
 import { VideoRoomInfo } from '../model/VideoLibrary';
@@ -6,7 +5,9 @@ import {
   calculateLibraryColumns,
   MAXIMUM_LIBRARY_GRID_WIDTH,
   MINIMUM_LIBRARY_GRID_WIDTH,
-  VideoLibraryViewModel
+  VideoLibraryViewModel,
+  videoLibraryRoomKey,
+  videoLibrarySizeText
 } from '../viewmodel/VideoLibraryViewModel';
 import { CachedThumbnail } from './components/CachedThumbnail';
 import { AppActionButton } from './components/AppActionButton';
@@ -134,7 +135,8 @@ export struct VideoLibraryPage {
       Stack({ alignContent: Alignment.TopStart }) {
         CachedThumbnail({
           url: this.viewModel.thumbnailURL(room),
-          emptyText: room.video_count === 0 ? '暂无录播' : '',
+          emptyText: room.statistics_status === 'unavailable' ? '统计暂不可用' :
+            (room.video_count === 0 ? '暂无录播' : ''),
           generation: this.viewModel.thumbnailGeneration
         })
         if (room.recording) {
@@ -166,7 +168,8 @@ export struct VideoLibraryPage {
           .fontWeight(FontWeight.Medium)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(`${room.video_count} 个视频 · 已用 ${Formats.formatBytes(room.total_size)}`)
+        Text(room.statistics_status === 'unavailable' ? '统计暂不可用' :
+          `${room.video_count} 个视频 · 总大小 ${videoLibrarySizeText(room)}`)
           .width('100%')
           .fontSize(12)
           .fontColor($r('sys.color.font_secondary'))
@@ -193,7 +196,7 @@ export struct VideoLibraryPage {
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-      } else if (this.viewModel.errorText.length > 0 && this.viewModel.rooms.length === 0) {
+      } else if (this.viewModel.errorText.length > 0) {
         this.errorState()
       } else if (this.viewModel.rooms.length === 0) {
         this.emptyState()
@@ -205,7 +208,7 @@ export struct VideoLibraryPage {
                 GridItem() {
                   this.roomCard(room)
                 }
-              }, (room: VideoRoomInfo): string => room.folder_path)
+              }, (room: VideoRoomInfo): string => videoLibraryRoomKey(room))
             }
             .columnsTemplate(`repeat(${this.columns}, 1fr)`)
             .columnsGap(16)

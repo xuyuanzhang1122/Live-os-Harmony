@@ -1,5 +1,7 @@
+import { Formats } from '../common/Formats';
 import { ThumbnailCache } from '../cache/ThumbnailCache';
 import { AppConfig } from '../config/AppConfig';
+import { BatchDeleteResult } from '../model/Common';
 import { WatchHistoryEntry } from '../model/HistoryEntry';
 import { VideoFileInfo, VideoFileInfoInit, VideoRoomInfo, VideoRoomInfoInit } from '../model/VideoLibrary';
 import { APIClient } from '../net/APIClient';
@@ -40,6 +42,23 @@ function errorMessage(error: Object): string {
   return error instanceof Error ? error.message : `${error}`;
 }
 
+export function videoLibrarySizeText(room: VideoRoomInfo): string {
+  if (room.statistics_status === 'unavailable') {
+    return '统计暂不可用';
+  }
+  if (room.total_size_text.length > 0) {
+    return room.total_size_text;
+  }
+  return Formats.formatVideoLibraryBytes(room.total_size);
+}
+
+// 大小和数量变化时必须更新 ArkUI 的卡片，不能只用稳定的文件夹路径作为键。
+export function videoLibraryRoomKey(room: VideoRoomInfo): string {
+  return `${room.folder_path}|${room.host_name}|${room.platform}|${room.video_count}|${room.total_size}` +
+    `|${room.total_size_text}|${room.statistics_status}|${room.latest_video_at}|${room.latest_video}` +
+    `|${room.recording ? 1 : 0}|${room.url ?? ''}`;
+}
+
 @ObservedV2
 export class VideoLibraryViewModel {
   @Trace rooms: VideoRoomInfo[] = [];
@@ -77,9 +96,7 @@ export class VideoLibraryViewModel {
       this.rooms = rooms;
       this.cache.set(key, JSON.stringify(rooms));
     } catch (error) {
-      if (this.rooms.length === 0) {
-        this.errorText = errorMessage(error);
-      }
+      this.errorText = errorMessage(error);
     } finally {
       this.isLoading = false;
       this.loading = false;
@@ -141,6 +158,7 @@ export class VideoListViewModel {
   @Trace files: VideoFileInfo[] = [];
   @Trace historyByPath: Map<string, WatchHistoryEntry> = new Map<string, WatchHistoryEntry>();
   @Trace selectedPaths: string[] = [];
+  @Trace deleteFailures: BatchDeleteResult[] = [];
   @Trace isLoading: boolean = false;
   @Trace isRefreshing: boolean = false;
   @Trace errorText: string = '';
@@ -190,9 +208,7 @@ export class VideoListViewModel {
         this.historyByPath = new Map<string, WatchHistoryEntry>();
       }
     } catch (error) {
-      if (this.files.length === 0) {
-        this.errorText = errorMessage(error);
-      }
+      this.errorText = errorMessage(error);
     } finally {
       this.isLoading = false;
       this.loading = false;
@@ -239,7 +255,13 @@ export class VideoListViewModel {
   }
 
   async deleteFile(file: VideoFileInfo): Promise<void> {
-    await this.client.deleteFile(file.rel_path);
+    if ((file.recording_id?.length ?? 0) > 0) {
+      const results: BatchDeleteResult[] = await this.client.batchDeleteRecordings([file]);
+      if (results[0]?.success !== true) throw new Error(results[0]?.message ?? '删除失败');
+    } else {
+      if (!this.client.usesLegacyPlayback()) throw new Error('缺少录播身份，请刷新后重试');
+      await this.client.deleteFile(file.rel_path);
+    }
     this.files = this.files.filter((value: VideoFileInfo): boolean => value.rel_path !== file.rel_path);
     this.selectedPaths = this.selectedPaths.filter((value: string): boolean => value !== file.rel_path);
     this.cache.set(this.cacheKey(), JSON.stringify(this.files));
@@ -250,11 +272,30 @@ export class VideoListViewModel {
     if (paths.length === 0) {
       return 0;
     }
-    await this.client.batchDeleteFiles(paths);
-    this.files = this.files.filter((file: VideoFileInfo): boolean => paths.indexOf(file.rel_path) < 0);
-    this.selectedPaths = [];
+    const files: VideoFileInfo[] = paths.map((path: string): VideoFileInfo | undefined =>
+      this.files.find((file: VideoFileInfo): boolean => file.rel_path === path)).filter((file: VideoFileInfo | undefined): boolean => file !== undefined) as VideoFileInfo[];
+    const hasV2: boolean = files.some((file: VideoFileInfo): boolean => (file.recording_id?.length ?? 0) > 0);
+    if (hasV2 && (files.length !== paths.length || files.some((file: VideoFileInfo): boolean => (file.recording_id?.length ?? 0) === 0))) {
+      throw new Error('录播身份已变化，请刷新列表后重试');
+    }
+    if (!hasV2 && !this.client.usesLegacyPlayback()) throw new Error('缺少录播身份，请刷新后重试');
+    const results: BatchDeleteResult[] = hasV2 ? await this.client.batchDeleteRecordings(files) :
+      await this.client.batchDeleteFiles(paths);
+    const succeeded: string[] = [];
+    const failures: BatchDeleteResult[] = [];
+    for (const path of paths) {
+      const result: BatchDeleteResult | undefined = results.find((item: BatchDeleteResult): boolean => item.path === path);
+      if (result?.success === true) {
+        succeeded.push(path);
+      } else {
+        failures.push({ path: path, success: false, message: result?.message ?? '服务端未返回该文件的删除结果' });
+      }
+    }
+    this.deleteFailures = failures;
+    this.files = this.files.filter((file: VideoFileInfo): boolean => succeeded.indexOf(file.rel_path) < 0);
+    this.selectedPaths = this.selectedPaths.filter((path: string): boolean => succeeded.indexOf(path) < 0);
     this.cache.set(this.cacheKey(), JSON.stringify(this.files));
-    return paths.length;
+    return succeeded.length;
   }
 
   thumbnailURL(file: VideoFileInfo): string {

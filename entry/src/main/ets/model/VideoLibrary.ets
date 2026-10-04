@@ -6,6 +6,9 @@ export interface VideoRoomInfoInit {
   folder_path: string;
   video_count: number;
   total_size: number;
+  total_size_text?: string;
+  statistics_status?: string;
+  statistics_checked_at?: number;
   latest_video_at: number;
   latest_video: string | null;
   recording: boolean;
@@ -18,6 +21,9 @@ export class VideoRoomInfo implements VideoRoomInfoInit {
   folder_path: string;
   video_count: number;
   total_size: number;
+  total_size_text: string;
+  statistics_status: string;
+  statistics_checked_at: number;
   latest_video_at: number;
   latest_video: string | null;
   recording: boolean;
@@ -29,6 +35,9 @@ export class VideoRoomInfo implements VideoRoomInfoInit {
     this.folder_path = value.folder_path ?? '';
     this.video_count = value.video_count ?? 0;
     this.total_size = value.total_size ?? 0;
+    this.total_size_text = value.total_size_text ?? '';
+    this.statistics_status = value.statistics_status ?? '';
+    this.statistics_checked_at = value.statistics_checked_at ?? 0;
     this.latest_video_at = value.latest_video_at ?? 0;
     this.latest_video = value.latest_video ?? null;
     this.recording = value.recording ?? false;
@@ -41,6 +50,9 @@ export class VideoRoomInfo implements VideoRoomInfoInit {
 }
 
 export interface VideoFileInfoInit {
+  recording_id?: string;
+  source_version?: string;
+  size_text?: string;
   name: string;
   rel_path: string;
   size: number;
@@ -53,6 +65,9 @@ export interface VideoFileInfoInit {
 }
 
 export class VideoFileInfo implements VideoFileInfoInit {
+  recording_id: string;
+  source_version: string;
+  size_text: string;
   name: string;
   rel_path: string;
   size: number;
@@ -64,6 +79,9 @@ export class VideoFileInfo implements VideoFileInfoInit {
   playback_status: PlaybackStatus | null;
 
   constructor(value: VideoFileInfoInit) {
+    this.recording_id = value.recording_id ?? '';
+    this.source_version = value.source_version ?? '';
+    this.size_text = value.size_text ?? '';
     this.name = value.name ?? '';
     this.rel_path = value.rel_path ?? '';
     this.size = value.size ?? 0;

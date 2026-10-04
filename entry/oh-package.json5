@@ -5,7 +5,9 @@
   "main": "",
   "author": "Xumy",
   "license": "",
-  "dependencies": {},
+  "dependencies": {
+    "libavcap.so": "file:./src/main/cpp/types/libavcap"
+  },
   "devDependencies": {
     "@ohos/hypium": "1.0.18"
   }

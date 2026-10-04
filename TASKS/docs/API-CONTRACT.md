@@ -190,3 +190,48 @@ iOS 客户端只使用 **兼容端点**（v1 bundle 端点本期不用）：
 3. **恢复轮询**：restore 响应含 `job_id` 且 `status ∈ {pending, running, restarting}` 时，每 2 秒查一次 status，最多 20 次（40 秒）；**轮询中收到 404 视为重启完成**（服务重启后内存任务表丢失）；连接失败属预期，继续轮询
 4. **上传目标选择**：备份上传优先源站（`appConfig.backupServerURL`），未配置则回落主服务；上传 404/405 → 提示「当前服务器暂不支持备份接口」但保留本地文件
 5. 任何页面下拉刷新会触发一次 `refreshNetworkStatus()` 重测网络（仅智能切换模式）
+
+
+## 5. 2026-10-03 播放解析与逐项删除补充
+
+本节按当前服务端源码核对；旧列表、备份的裸对象规则不变，不做全局 data 解包。
+
+### 播放解析
+
+`GET /api/playback/resolve/{逐段编码的 relPath}` 使用 Bearer 鉴权，返回 commonResp：
+
+```json
+{"err_no":0,"err_msg":"","data":{"status":"ready","protocol":"file","mime_type":"video/mp4","url":"/files/clip.mp4?expires=123&sig=abc"}}
+```
+
+- 只接受 `ready / processing / recording / failed`。ready 必须有非空 URL；processing 才继续轮询；recording 和 failed 展示 error 并结束。
+- `retry_after_seconds` 缺失或非数字默认 2 秒；有限数字限制在 1–10 秒，允许小数。退出页面必须取消，网络失败或契约错误不能变成无限重试。
+- 两端保留 HTTP(S) 绝对 URL；相对地址拼接配置的基地址（保留反向代理子路径）。已有 `expires + sig` 或 `_key` 不再追加 Key；否则使用 `_key` 回退。不得重新生成或覆盖服务端签名。
+- 仅 HTTP 405 或标准端点缺失 404（`404 page not found`）允许旧列表地址回退。JSON 文件不存在、401/403、网络失败、未知状态及缺少 data/URL 必须报错。
+- 签名过期后的重新解析/续播、端到端超时与真机首帧仍需后续验证；本节不表示已验收。
+
+双端共用服务端仓库 `docs/contracts/playback-resolve-fixtures.json` 的 15 个样例。鸿蒙执行 `node --test TASKS/tests/*.cjs`，iOS 执行 `bash Tests/run-playback-contract.sh`。测试要求三个仓库保持当前同级目录布局。
+
+### 批量删除
+
+`POST /api/batch/file/delete` 请求 `{"paths":["a.flv","b.flv"]}`，返回：
+
+```json
+{"err_no":0,"err_msg":"","data":[{"path":"a.flv","success":true,"message":"成功"},{"path":"b.flv","success":false,"message":"正在录制"}]}
+```
+
+HTTP 请求成功不代表所有文件删除成功。双端 API 返回逐项结果，ViewModel 只移除本次请求中明确 success 的路径，并同步列表缓存；失败或遗漏的路径继续选中，保留逐项原因，页面报告真实成功数量。非法、重复结果以及请求失败不能修改本地文件列表。iOS 列表缓存键对房间路径中的斜杠与百分号编码，避免相对路径变成缓存子目录。
+
+
+## 视频库权威统计（2026-10-03 过渡契约）
+
+`GET /api/video-library` 仍返回裸房间数组，原 `total_size` 是服务器核验的字节和。新增可选兼容字段：`total_size_text`（服务器统一十进制展示文本）、`statistics_status`（verified/unavailable/pending）、`statistics_checked_at`（Unix 秒）。两端优先原样显示文本；unavailable 必须显示统计暂不可用，不能展示部分和或旧数字。旧服务器缺字段时，仅把服务器给出的字节值按同一十进制规则展示，不自行累加视频大小。
+
+过渡服务端每次扫描房间普通视频文件，忽略隐藏文件/目录及符号链接；遍历失败不发布部分计数。目录级失败可返回 HTTP 500，客户端即使有缓存也报告刷新失败。响应 Cache-Control: no-store。此过渡实现将在主计划 T2 接入持久录播目录后替换为数据库查询，不作为永久请求扫描方案。当前原始 FLV 和 MP4 若同时存在，会同时占用并计入空间；T2 将单列派生资产统计口径。
+
+
+## T2 持久目录接管统计
+
+当前 `/api/video-library` 从 SQLite 录播目录查询，HTTP 不遍历媒体目录；服务端启动、30 秒后台核验及录制/pipeline/文件变更事件更新。`statistics_checked_at` 表示该快照最后成功核验时间，不是请求时刻。无目录或首次核验未完成返回 HTTP 503，不退回猜测扫描。核验失败保留旧记录供恢复，但以 unavailable 状态和零计数/大小展示，禁止当作当前值。
+
+`video_count` 为逻辑录播数量，可信 FLV→MP4 关联只计一次；`total_size` 为仍保留的主视频文件字节和，源和主 MP4 同时存在时都占空间。`derived_size` 单列已登记持久派生资产的物理字节，不混入主视频。来源版本改变会使旧派生产物失效；客户端继续直接显示服务端大小文本。

@@ -6,8 +6,12 @@ import { Formats } from '../common/Formats';
 import { Haptics } from '../common/Haptics';
 import { AppConfig } from '../config/AppConfig';
 import { WatchHistoryEntry } from '../model/HistoryEntry';
+import { ApiError } from '../model/Common';
 import { VideoFileInfo } from '../model/VideoLibrary';
 import { APIClient } from '../net/APIClient';
+import { PlaybackSession } from '../model/PlaybackV2';
+import { PlayerViewModel } from '../viewmodel/PlayerViewModel';
+import { PlayerCapabilities } from '../player/PlayerCapabilities';
 import { PlayerController, PlayerState, withTimeout } from '../player/PlayerController';
 import { ProgressTracker } from '../player/ProgressTracker';
 import {
@@ -98,6 +102,8 @@ export struct PlayerPage {
   private readonly surfaceController: XComponentController = new XComponentController();
   private surfaceId: string = '';
   private playbackURL: string = '';
+  private sessionModel: PlayerViewModel | null = null;
+  private refreshingPlayback: boolean = false;
   private playbackResolveTask: Promise<void> | null = null;
   private dragTarget: number = 0;
   private setupStarted: boolean = false;
@@ -177,7 +183,7 @@ export struct PlayerPage {
         if (!this.isLifecycleActive(token)) {
           return;
         }
-        this.errorText = playbackErrorText(this.file.playback_status);
+        this.errorText = `播放失败 (${_code}): ${_message}`;
         this.chromeVisible = false;
         this.isResumeSettled = true;
       });
@@ -274,18 +280,12 @@ export struct PlayerPage {
       return;
     }
     try {
+      if (await this.resolveV2Playback(client, token)) return;
       while (this.isLifecycleActive(token)) {
         const result = await client.resolvePlayback(this.file.rel_path);
         if (!this.isLifecycleActive(token)) return;
         if (result.status === 'ready' && typeof result.url === 'string' && result.url.length > 0) {
-          this.playbackURL = result.url;
-          this.errorText = '';
-          const thumbnail: string = APIClient.buildThumbnailUrl(client.baseURL, client.apiKey, this.file);
-          this.thumbnailURL = /^https?:\/\//i.test(thumbnail) ? thumbnail : '';
-          this.playbackResolveTask = null;
-          if (this.surfaceId.length > 0) {
-            this.setupPlayer(this.surfaceId);
-          }
+          this.finishPlaybackResolution(APIClient.buildMediaUrl(client.baseURL, client.apiKey, result.url));
           return;
         }
         if (result.status === 'recording' || result.status === 'failed') {
@@ -295,18 +295,38 @@ export struct PlayerPage {
           this.playbackResolveTask = null;
           return;
         }
-        await delay(Math.max(1000, (result.retry_after_seconds ?? 2) * 1000));
+        if (result.status !== 'processing') {
+          throw new Error(`未知播放解析状态: ${result.status}`);
+        }
+        await delay(APIClient.playbackRetrySeconds(result.retry_after_seconds) * 1000);
       }
-    } catch (_) {
+    } catch (error) {
       if (!this.isLifecycleActive(token)) return;
-      // 兼容旧服务端：解析接口不可用时沿用列表接口生成的播放地址。
-      this.playbackURL = APIClient.buildPlaybackUrl(client.baseURL, client.apiKey, this.file);
-      if (!/^https?:\/\//i.test(this.playbackURL)) {
-        this.errorText = playbackErrorText(this.file.playback_status);
-        this.chromeVisible = false;
-        this.isResumeSettled = true;
+      if (APIClient.canFallbackPlayback(error)) {
+        try {
+          this.finishPlaybackResolution(APIClient.buildPlaybackUrl(client.baseURL, client.apiKey, this.file));
+          return;
+        } catch (fallbackError) {
+          this.errorText = fallbackError instanceof ApiError ? fallbackError.message : playbackErrorText(this.file.playback_status);
+        }
+      } else {
+        this.errorText = error instanceof ApiError ? error.message : playbackErrorText(this.file.playback_status);
       }
+      this.chromeVisible = false;
+      this.isResumeSettled = true;
       this.playbackResolveTask = null;
+    }
+  }
+
+  private finishPlaybackResolution(url: string): void {
+    this.playbackURL = url;
+    this.errorText = '';
+    const client: APIClient = this.config.getClient();
+    const thumbnail: string = APIClient.buildThumbnailUrl(client.baseURL, client.apiKey, this.file);
+    this.thumbnailURL = /^https?:\/\//i.test(thumbnail) ? thumbnail : '';
+    this.playbackResolveTask = null;
+    if (this.surfaceId.length > 0) {
+      this.setupPlayer(this.surfaceId);
     }
   }
 
@@ -342,6 +362,51 @@ export struct PlayerPage {
       log(`setup rejected: ${error}`);
       this.setupStarted = false;
     });
+  }
+
+  private async resolveV2Playback(client: APIClient, token: number): Promise<boolean> {
+    let file: VideoFileInfo = this.file;
+    if ((file.recording_id?.length ?? 0) === 0) {
+      const folder: string = file.rel_path.substring(0, file.rel_path.lastIndexOf('/'));
+      const files: VideoFileInfo[] = await client.getVideoFiles(folder);
+      if (!this.isLifecycleActive(token)) return true;
+      const match: VideoFileInfo | undefined = files.find((item: VideoFileInfo): boolean => item.rel_path === file.rel_path);
+      if (match !== undefined) file = match;
+      if (client.usesLegacyPlayback()) return false;
+      if (file.recording_id.length === 0) throw new Error('录播身份已变化，请刷新列表后重新打开');
+    }
+    const model: PlayerViewModel = new PlayerViewModel(client);
+    this.sessionModel = model;
+    model.onReady = async (session: PlaybackSession): Promise<void> => {
+      if (!this.isLifecycleActive(token)) return;
+      if (this.setupStarted) { await this.refreshPlaybackURL(session.url ?? '', token); }
+      else { this.finishPlaybackResolution(session.url ?? ''); }
+    };
+    model.onError = (error: Error): void => {
+      if (!this.isLifecycleActive(token)) return;
+      this.errorText = error.message;
+      this.chromeVisible = false;
+      this.isResumeSettled = true;
+      this.playbackResolveTask = null;
+    };
+    await model.open({ recording_id: file.recording_id, source_version: file.source_version }, PlayerCapabilities.detect());
+    return true;
+  }
+
+  private async refreshPlaybackURL(url: string, token: number): Promise<void> {
+    if (!this.isLifecycleActive(token) || this.refreshingPlayback) return;
+    this.refreshingPlayback = true;
+    const position: number = this.controller.currentTime;
+    const playing: boolean = this.controller.isPlaying;
+    const rate: number = this.playbackRate;
+    try {
+      await this.controller.release();
+      if (!this.isLifecycleActive(token)) return;
+      this.playbackURL = url;
+      await this.controller.setup(url, this.surfaceId, { positionSeconds: position, rate: rate, autoplay: playing });
+      if (!this.isLifecycleActive(token)) return;
+      if (this.controller.state === 'error') throw new Error('播放授权已刷新，但播放器重新准备失败');
+    } finally { this.refreshingPlayback = false; }
   }
 
   private async togglePlayback(source: string): Promise<void> {
@@ -395,6 +460,9 @@ export struct PlayerPage {
   private async performShutdown(reason: string): Promise<void> {
     log(`shutdown begin reason=${reason} native=${this.controller.state}`);
     this.clearTimers();
+    const model: PlayerViewModel | null = this.sessionModel;
+    this.sessionModel = null;
+    if (model !== null) await withTimeout(model.close(), 2500, 'shutdown session');
     this.hudDirection = DIRECTION_NONE;
     this.speedGestureStarted = false;
     this.tracker.stop();

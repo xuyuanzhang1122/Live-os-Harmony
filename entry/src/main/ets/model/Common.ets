@@ -101,3 +101,9 @@ export interface PlaybackResolveResult {
   error?: string;
   retry_after_seconds?: number;
 }
+
+export interface BatchDeleteResult {
+  path: string;
+  success: boolean;
+  message?: string;
+}

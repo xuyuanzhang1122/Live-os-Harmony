@@ -7,3 +7,12 @@ oh_modules/
 node_modules/
 *.hap
 .DS_Store
+
+# Local native output, bundled test tools, and device/signing diagnostics
+.cxx/
+external_tools/
+TASKS/tools/
+TASKS/t6-evidence/*.log
+TASKS/t6-evidence/*-path.txt
+TASKS/t6-evidence/device-*
+TASKS/t6-evidence/isolated-recordings.json

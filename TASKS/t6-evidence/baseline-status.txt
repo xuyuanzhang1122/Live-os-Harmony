@@ -1,0 +1,19 @@
+ M TASKS/docs/API-CONTRACT.md
+ M entry/src/main/ets/common/Formats.ets
+ M entry/src/main/ets/model/Common.ets
+ M entry/src/main/ets/model/VideoLibrary.ets
+ M entry/src/main/ets/net/APIClient.ets
+ M entry/src/main/ets/pages/PlayerPage.ets
+ M entry/src/main/ets/pages/VideoLibraryPage.ets
+ M entry/src/main/ets/pages/VideoListPage.ets
+ M entry/src/main/ets/player/PlayerController.ets
+ M entry/src/main/ets/viewmodel/VideoLibraryViewModel.ets
+ M entry/src/test/List.test.ets
+ M entry/src/test/Task1Infrastructure.test.ets
+ M entry/src/test/Task3Player.test.ets
+?? TASKS/REPORT-CONTRACT-20261003.md
+?? TASKS/REPORT-PLAYBACK-20261003.md
+?? TASKS/plans/
+?? TASKS/tests/
+?? entry/src/test/PlaybackContract.test.ets
+?? entry/src/test/VideoLibraryStatistics.test.ets

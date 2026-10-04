@@ -1,8 +1,6 @@
-import { connection, http } from '@kit.NetworkKit';
+import { connection } from '@kit.NetworkKit';
 
-interface ProbeHeaders {
-  Authorization?: string;
-}
+import { APIClient } from '../net/APIClient';
 
 export class NetworkMonitor {
   private readonly onNetworkChange: () => void;
@@ -68,32 +66,7 @@ export class NetworkMonitor {
   }
 
   private static async probeOnce(lanURL: string, apiKey: string): Promise<boolean> {
-    const base: string = lanURL.trim().replace(/\/+$/, '');
-    if (!/^https?:\/\//i.test(base)) {
-      return false;
-    }
-    const request: http.HttpRequest = http.createHttp();
-    const headers: ProbeHeaders = {};
-    if (apiKey.length > 0) {
-      headers.Authorization = `Bearer ${apiKey}`;
-    }
-    const options: http.HttpRequestOptions = {
-      method: http.RequestMethod.GET,
-      header: headers,
-      connectTimeout: 2000,
-      readTimeout: 2000,
-      usingCache: false
-    };
-    try {
-      const response: http.HttpResponse = await request.request(`${base}/api/info`, options);
-      // 收到任何 HTTP 状态码（含 401/404/405）都说明服务器可达；
-      // 只有请求本身抛错（超时、无路由）才视为不可达
-      return response.responseCode > 0;
-    } catch (_) {
-      return false;
-    } finally {
-      request.destroy();
-    }
+    return new APIClient(lanURL, apiKey).probeServer();
   }
 
   private static delay(milliseconds: number): Promise<void> {

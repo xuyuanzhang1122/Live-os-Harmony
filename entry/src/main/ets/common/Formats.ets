@@ -11,6 +11,24 @@ export class Formats {
     return `${amount.toFixed(1)} ${units[unitIndex]}`;
   }
 
+  // 旧服务端仅下发字节时的兼容显示，不在客户端统计文件总量。
+  static formatVideoLibraryBytes(value: number): string {
+    if (!Number.isFinite(value) || value < 0) {
+      return '统计暂不可用';
+    }
+    if (value < 1000) {
+      return `${Math.floor(value)} B`;
+    }
+    const units: string[] = ['B', 'kB', 'MB', 'GB', 'TB', 'PB', 'EB'];
+    let amount: number = value;
+    let index: number = 0;
+    while (amount >= 1000 && index < units.length - 1) {
+      amount /= 1000;
+      index += 1;
+    }
+    return `${amount.toFixed(1)} ${units[index]}`;
+  }
+
   static formatClock(seconds: number): string {
     const total: number = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
     const hours: number = Math.floor(total / 3600);
