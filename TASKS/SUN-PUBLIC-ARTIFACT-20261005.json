@@ -1,0 +1,27 @@
+{
+  "assets": [
+    {
+      "digest": "sha256:35284254a270a7ff84223527e1cf437ff9ebf2469fbaf2f52fe786b77ed3c220",
+      "name": "LiveOS-sun-unsigned.hap",
+      "size": 4324855,
+      "url": "https://github.com/xuyuanzhang1122/Live-os-Harmony/releases/download/sun/LiveOS-sun-unsigned.hap"
+    },
+    {
+      "digest": "sha256:2084e45b1afb249393c45be7cea8e25923afe790f404c9bab52aecdeccb71084",
+      "name": "SHA256SUMS",
+      "size": 90,
+      "url": "https://github.com/xuyuanzhang1122/Live-os-Harmony/releases/download/sun/SHA256SUMS"
+    }
+  ],
+  "draft": false,
+  "prerelease": false,
+  "tag": "sun",
+  "url": "https://github.com/xuyuanzhang1122/Live-os-Harmony/releases/tag/sun",
+  "verified_download": {
+    "zip_valid": true,
+    "versionName": "3.0.0",
+    "versionCode": 3,
+    "release_mode": true,
+    "sha256": "35284254a270a7ff84223527e1cf437ff9ebf2469fbaf2f52fe786b77ed3c220"
+  }
+}

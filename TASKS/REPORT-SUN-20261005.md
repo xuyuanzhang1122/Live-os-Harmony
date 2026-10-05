@@ -24,4 +24,4 @@ node --test TASKS/tests/*.cjs 87 pass；Hvigor test 实际 test_result.txt 107 p
 
 用户授权正式三端 Release，含必要推送。公开 LiveOS-sun-unsigned.hap 不带签名，需要自己的合法签名或 DevEco 构建运行。包兼容 API 12、目标 API 21；已有 API13 倍速枚举兼容警告未在此版本同步中扩展范围。指定大文件 MatePad 及多设备/编码矩阵仍保持先前真实限制，不能以源码测试替代。
 
-待资产发布后追加实际下载摘要及 URL。
+正式 Release 已公开：https://github.com/xuyuanzhang1122/Live-os-Harmony/releases/tag/sun。重新从 GitHub 下载 HAP，与本地逐字节一致，GitHub digest、ZIP 完整性、3.0.0 / 3 和 release 模式通过；摘要 35284254a270a7ff84223527e1cf437ff9ebf2469fbaf2f52fe786b77ed3c220。详情见 SUN-PUBLIC-ARTIFACT-20261005.json。
