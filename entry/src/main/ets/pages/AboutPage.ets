@@ -1,4 +1,5 @@
 import { SettingsRowIcon } from './components/SettingsRowIcon';
+import { RELEASE_NAME, SUN_RELEASE_NOTES } from '../common/ReleaseInfo';
 
 @ComponentV2
 export struct AboutPage {
@@ -78,13 +79,16 @@ export struct AboutPage {
           ListItem() {
             Column({ space: 4 }) {
               Text('Live OS').fontSize(26).fontWeight(FontWeight.Bold)
-              Text('版本 2.0.0').fontSize(14).fontColor($r('sys.color.font_secondary'))
+              Text(`版本 ${RELEASE_NAME}`).fontSize(14).fontColor($r('sys.color.font_secondary'))
             }
             .width('100%')
             .padding({ top: 12, bottom: 10 })
           }
           ListItem() {
-            this.releaseCard('2.0', this.notes20, true)
+            this.releaseCard(`${RELEASE_NAME} · 2026-10-05`, SUN_RELEASE_NOTES, true)
+          }
+          ListItem() {
+            this.releaseCard('2.0', this.notes20, false)
           }
           ListItem() {
             this.releaseCard('1.2', this.notes12, false)

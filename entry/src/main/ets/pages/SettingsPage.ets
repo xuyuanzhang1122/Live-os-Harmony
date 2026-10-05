@@ -7,8 +7,9 @@ import { ServerInfo } from '../model/Common';
 import { apiKeySummary, apiKeySummaryNeedsReload, totalCacheBytes } from '../viewmodel/SettingsViewModel';
 import { AppActionButton } from './components/AppActionButton';
 import { SettingsRowIcon } from './components/SettingsRowIcon';
+import { RELEASE_NAME } from '../common/ReleaseInfo';
 
-const GITHUB_URL: string = 'https://github.com/xuyuanzhang1122/bililive-harmony';
+const GITHUB_URL: string = 'https://github.com/xuyuanzhang1122/Live-os-Harmony';
 
 @ComponentV2
 export struct SettingsPage {
@@ -363,7 +364,7 @@ export struct SettingsPage {
             this.groupTitle('关于')
             Column() {
               this.navRow($r('sys.symbol.info_circle_fill'), '#3478F6', '#183478F6',
-                '版本', '2.0.0', 'AboutPage')
+                '版本', RELEASE_NAME, 'AboutPage')
               this.line()
               Button() {
                 Row({ space: 12 }) {

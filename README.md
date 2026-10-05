@@ -4,9 +4,11 @@ Live OS 是 bililive 生态的**鸿蒙原生客户端**（ArkUI / Stage 模型�
 [⚙️ bililive-go-UI](https://github.com/xuyuanzhang1122/bililive-go-UI) 录播主服务使用，与
 [📱 bililive-ios](https://github.com/xuyuanzhang1122/bililive-ios) 功能 1:1 对齐。
 
-当前应用版本：`2.0.0`；Bundle Name：`com.xumy.liveos`。
+当前正式应用版本：[`sun`](https://github.com/xuyuanzhang1122/Live-os-Harmony/releases/tag/sun)（包内 versionName：`3.0.0`，versionCode：`3`）；Bundle Name：`com.xumy.liveos`。
 
-> ⚠️ **服务端要求 v2.0.2 及以上**：v2.0.1 及之前为 iOS 优先的 HLS 形态，鸿蒙端部分格式不可播；[v2.0.2](https://github.com/xuyuanzhang1122/bililive-go-UI/releases/tag/v2.0.2) 起双端兼容。
+> 推荐配合正式服务端 `sun`，使用统一录播目录、设备能力协商及播放授权；保留旧服务端适配。新录播准备完成后自动播放，旧库需要预览确认后准备。
+
+`sun` Release 提供 `LiveOS-sun-unsigned.hap`，供自行签名或 DevEco Studio 构建安装；未签名 HAP 不能直接安装到普通真机。应用内「设置 → 版本」含完整迭代说明，详见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
 ## ✨ 能做什么
 
@@ -24,7 +26,7 @@ Live OS 是 bililive 生态的**鸿蒙原生客户端**（ArkUI / Stage 模型�
 
 > [Releases](https://github.com/xuyuanzhang1122/Live-os-Harmony/releases) 页提供构建好的 `.hap`。
 
-- 附带的 `.hap` 为**调试签名**（绑定作者设备 UDID），其他设备直接安装会签名校验失败
+- 本次 `sun` 的 `.hap` 为**未签名发布产物**，需要自己的合法签名；旧 Release 的调试签名包可能绑定作者设备，不能通用安装
 - 其他设备请自行构建：DevEco Studio 6.0.1+ 打开工程 → Signing Configs 启用**自动签名**（需华为开发者账号，调试证书有效期一年）→ 连接设备运行 `entry` 模块
 - 调试签名一年到期后重新生成签名再装机即可，覆盖安装数据不丢
 
@@ -59,7 +61,17 @@ Windows PowerShell：
 .\hvigorw.bat test --daemon=false
 ```
 
-构建产物位于 `entry/build/default/outputs/default/`。包装脚本会探测 DevEco Studio 的 Node、JBR 与 SDK；环境差异详见 `TASKS/docs/CONVENTIONS.md`。
+macOS（DevEco 安装在下列目录时）：
+
+```bash
+export DEVECO_HOME=/Applications/DevEco-Studio.app/Contents
+export NODE_HOME="$DEVECO_HOME/tools/node"
+export PATH="$NODE_HOME/bin:$PATH"
+sh ./hvigorw assembleHap --mode module -p product=default -p module=entry@default -p buildMode=release --no-daemon
+sh ./hvigorw test --no-daemon
+```
+
+公开工程不携带签名材料；真机安装需先在 DevEco 配置自己的签名。构建产物位于 `entry/build/default/outputs/default/`。包装脚本会探测 DevEco Studio 的 Node、JBR 与 SDK；环境差异详见 `TASKS/docs/CONVENTIONS.md`。
 
 ## 🧩 项目生态
 
